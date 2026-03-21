@@ -1,5 +1,0 @@
----
-argocd_namespace: argocd
-argocd_chart_version: "9.1.6"
-argocd_repo_url: "https://github.com/philipp-lein/infrastructure-playground"
-argocd_repo_path: "frontend/deployment"

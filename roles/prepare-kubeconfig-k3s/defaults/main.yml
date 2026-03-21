@@ -1,3 +1,0 @@
-kubeconfig_folder: "~/.kube"
-kubeconfig_source: "/etc/rancher/k3s/k3s.yaml"
-kubeconfig_destination: "{{ kubeconfig_folder }}/config"
