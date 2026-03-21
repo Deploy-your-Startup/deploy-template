@@ -23,6 +23,10 @@ runs:
 
         cp -R "$source_root/roles" "$destination/roles"
 
+        if [ -f "$source_root/ansible.cfg" ]; then
+          cp "$source_root/ansible.cfg" "$destination/ansible.cfg"
+        fi
+
         if [ -f "$source_root/requirements.yml" ]; then
           cp "$source_root/requirements.yml" "$destination/requirements.yml"
         fi
