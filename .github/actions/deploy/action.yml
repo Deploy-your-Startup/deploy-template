@@ -54,6 +54,14 @@ runs:
           cp "$source_root/requirements.yml" "$destination/requirements.yml"
         fi
 
+        if [ -f "$source_root/inventory.ini" ]; then
+          cp "$source_root/inventory.ini" "$destination/inventory.ini"
+        fi
+
+        if [ -f "$source_root/inventory.hcloud.yml" ]; then
+          cp "$source_root/inventory.hcloud.yml" "$destination/inventory.hcloud.yml"
+        fi
+
         if [ -f "$source_root/backup-playbook.yml" ]; then
           cp "$source_root/backup-playbook.yml" "$destination/backup-playbook.yml"
         fi
