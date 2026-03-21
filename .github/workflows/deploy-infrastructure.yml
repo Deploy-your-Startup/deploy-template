@@ -1,0 +1,41 @@
+name: Deploy Infrastructure
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Environment which infrastructure should be deployed'
+        required: true
+        default: 'production'
+        type: string
+    secrets:
+      VAULT_PASSWORD:
+        required: true
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment which infrastructure should be deployed'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.environment || github.event.inputs.environment }}-deploy-infrastructure
+  cancel-in-progress: true
+
+jobs:
+  deploy-infrastructure:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v6
+
+      - name: "Deploy Infrastructure"
+        if: github.event_name != 'pull_request'
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/deploy@main
+        with:
+          environment: ${{ inputs.environment || github.event.inputs.environment }}
+          service: "infrastructure"
+          vault_password: ${{ secrets.VAULT_PASSWORD }}

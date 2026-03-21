@@ -1,0 +1,11 @@
+- name: "install pip3"
+  apt:
+    name: python3-pip
+    state: present
+    update_cache: yes
+
+- name: "install kubernetes python client"
+  pip:
+    name: kubernetes
+    state: latest
+    extra_args: "--break-system-packages"

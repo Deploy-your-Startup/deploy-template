@@ -1,0 +1,38 @@
+- name: "apply service definition"
+  k8s:
+    state: present
+    namespace: default
+    definition: "{{ lookup('template', 'service.yml') }}"
+  tags: my-service
+
+- name: "apply persistent volume claim definition"
+  k8s:
+    state: present
+    namespace: default
+    definition: "{{ lookup('template', 'pvc.yml') }}"
+  tags: my-service
+
+- name: "apply deployment definition"
+  k8s:
+    state: present
+    namespace: default
+    definition: "{{ lookup('template', 'deployment.yml') }}"
+  tags: my-service
+
+- name: "apply HTTPRoute definition"
+  k8s:
+    state: present
+    namespace: default
+    definition: "{{ lookup('template', 'route.yml') }}"
+  retries: 3
+  delay: 10
+  register: route_result
+  until: route_result is succeeded
+  tags: my-service
+
+- name: "Apply traeffik middleware for my-service"
+  k8s:
+    state: present
+    namespace: default
+    definition: "{{ lookup('template', 'traefik-middleware.yml') }}"
+  tags: my-service

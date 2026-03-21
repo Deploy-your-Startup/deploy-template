@@ -1,0 +1,112 @@
+# -----------------------------------------------------------------------------
+# STEP 1: Get network info directly from server
+# -----------------------------------------------------------------------------
+- name: "Get private IP"
+  shell: ip -o addr show | grep -E "inet 10\.[0-9]+\.[0-9]+\.[0-9]+" | awk '{print $4}' | cut -d'/' -f1 | head -1
+  register: private_ip_result
+  changed_when: false
+
+- name: "Set node private IP"
+  set_fact:
+    node_private_ip: "{{ private_ip_result.stdout }}"
+
+- name: "Get flannel interface"
+  shell: ip -o addr show | grep "{{ node_private_ip }}" | awk '{print $2}'
+  register: flannel_iface_result
+  changed_when: false
+
+- name: "Set flannel interface"
+  set_fact:
+    flannel_interface: "{{ flannel_iface_result.stdout }}"
+
+# -----------------------------------------------------------------------------
+# STEP 2: Determine role from hostname
+# -----------------------------------------------------------------------------
+- name: "Set node role"
+  set_fact:
+    is_first_master: "{{ inventory_hostname.endswith('master-0') }}"
+    is_master: "{{ 'master' in inventory_hostname }}"
+    is_worker: "{{ 'worker' in inventory_hostname }}"
+    first_master_host: "{{ inventory_hostname | regex_replace('(master|worker)-[0-9]+$', 'master-0') }}"
+
+- name: "Debug"
+  debug:
+    msg: "{{ inventory_hostname }} | IP: {{ node_private_ip }} | first_master: {{ is_first_master }} | master: {{ is_master }} | worker: {{ is_worker }}"
+
+# -----------------------------------------------------------------------------
+# STEP 3: Get first master IP
+# -----------------------------------------------------------------------------
+- name: "Get first master IP"
+  shell: ip -o addr show | grep -E "inet 10\.[0-9]+\.[0-9]+\.[0-9]+" | awk '{print $4}' | cut -d'/' -f1 | head -1
+  register: first_master_ip_result
+  delegate_to: "{{ first_master_host }}"
+  changed_when: false
+
+- name: "Set first master IP"
+  set_fact:
+    first_master_ip: "{{ first_master_ip_result.stdout }}"
+
+# -----------------------------------------------------------------------------
+# STEP 4: First master - cluster init
+# -----------------------------------------------------------------------------
+- name: "Install first master (cluster-init)"
+  shell: |
+    curl -sfL https://get.k3s.io | K3S_TOKEN="{{ k3s_token }}" INSTALL_K3S_EXEC="server \
+      --cluster-init \
+      --node-ip={{ node_private_ip }} \
+      --flannel-iface={{ flannel_interface }} \
+      --tls-san={{ ansible_host }} \
+      --tls-san={{ node_private_ip }} \
+      --node-label=type=master" sh -
+  args:
+    creates: /etc/rancher/k3s/k3s.yaml
+  when: is_first_master
+
+- name: "Wait for first master"
+  wait_for:
+    port: 6443
+    timeout: 120
+  when: is_first_master
+
+# -----------------------------------------------------------------------------
+# STEP 5: Other masters - join
+# -----------------------------------------------------------------------------
+- name: "Wait for first master API"
+  wait_for:
+    host: "{{ first_master_ip }}"
+    port: 6443
+    timeout: 180
+  when: is_master and not is_first_master
+
+- name: "Join master"
+  shell: |
+    curl -sfL https://get.k3s.io | K3S_TOKEN="{{ k3s_token }}" INSTALL_K3S_EXEC="server \
+      --server=https://{{ first_master_ip }}:6443 \
+      --node-ip={{ node_private_ip }} \
+      --flannel-iface={{ flannel_interface }} \
+      --tls-san={{ ansible_host }} \
+      --tls-san={{ node_private_ip }} \
+      --node-label=type=master" sh -
+  args:
+    creates: /etc/rancher/k3s/k3s.yaml
+  when: is_master and not is_first_master
+
+# -----------------------------------------------------------------------------
+# STEP 6: Workers - join
+# -----------------------------------------------------------------------------
+- name: "Wait for master API"
+  wait_for:
+    host: "{{ first_master_ip }}"
+    port: 6443
+    timeout: 180
+  when: is_worker
+
+- name: "Join worker"
+  shell: |
+    curl -sfL https://get.k3s.io | K3S_TOKEN="{{ k3s_token }}" K3S_URL="https://{{ first_master_ip }}:6443" INSTALL_K3S_EXEC="agent \
+      --node-ip={{ node_private_ip }} \
+      --flannel-iface={{ flannel_interface }} \
+      --node-label=type=worker" sh -
+  args:
+    creates: /var/lib/rancher/k3s/agent/kubelet.kubeconfig
+  when: is_worker

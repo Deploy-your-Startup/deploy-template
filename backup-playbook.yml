@@ -1,0 +1,162 @@
+---
+- hosts: hcloud_type_master
+  gather_facts: false
+  vars:
+    app_name: "{{ project_name }}"
+    backup_env: "{{ backup_environment | default('production', true) }}"
+    local_backup_root_path: "{{ local_backup_root | default(lookup('env', 'HOME') + '/Backups/' + app_name, true) }}"
+
+  tasks:
+    - name: Set backup timestamp once
+      set_fact:
+        backup_timestamp: "{{ backup_timestamp | default(lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S'), true) }}"
+
+    - name: Set backup paths
+      set_fact:
+        remote_backup_dir: "/tmp/{{ app_name }}-backup-{{ backup_timestamp }}"
+        db_backup_filename: "{{ app_name }}-db-{{ backup_env }}-{{ backup_timestamp }}.sql.gz"
+        django_backup_filename: "{{ app_name }}-django-{{ backup_env }}-{{ backup_timestamp }}.json.gz"
+        media_backup_filename: "{{ app_name }}-media-{{ backup_env }}-{{ backup_timestamp }}.tar.gz"
+        local_backup_dir: "{{ local_backup_root_path }}/{{ backup_timestamp }}"
+        local_db_backup_file: "{{ local_backup_root_path }}/{{ backup_timestamp }}/{{ app_name }}-db-{{ backup_env }}-{{ backup_timestamp }}.sql.gz"
+        local_django_backup_file: "{{ local_backup_root_path }}/{{ backup_timestamp }}/{{ app_name }}-django-{{ backup_env }}-{{ backup_timestamp }}.json.gz"
+        local_media_backup_file: "{{ local_backup_root_path }}/{{ backup_timestamp }}/{{ app_name }}-media-{{ backup_env }}-{{ backup_timestamp }}.tar.gz"
+
+    - name: Create remote backup directory
+      file:
+        path: "{{ remote_backup_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Create database dump from postgres deployment
+      shell: |
+        set -euo pipefail
+        mkdir -p "{{ remote_backup_dir }}"
+        APP_DB_NAME="$(kubectl get secret backend -n default -o jsonpath='{.data.backend_db_name}' | base64 -d)"
+        kubectl exec -n default deploy/postgres -- sh -c "pg_dump -U \"\$POSTGRES_USER\" -d \"$APP_DB_NAME\" --no-owner --no-acl" | gzip -c > "{{ remote_backup_dir }}/{{ db_backup_filename }}"
+      args:
+        executable: /bin/bash
+
+    - name: Archive media from backend deployment
+      shell: |
+        set -euo pipefail
+        mkdir -p "{{ remote_backup_dir }}"
+        kubectl exec -n default deploy/backend -- tar -C /app -czf - media > "{{ remote_backup_dir }}/{{ media_backup_filename }}"
+      args:
+        executable: /bin/bash
+
+    - name: Create Django dumpdata backup from backend deployment
+      shell: |
+        set -euo pipefail
+        mkdir -p "{{ remote_backup_dir }}"
+        kubectl exec -n default deploy/backend -- sh -c "cd /app && uv run python manage.py dumpdata --natural-foreign --natural-primary --settings project.settings" | gzip -c > "{{ remote_backup_dir }}/{{ django_backup_filename }}"
+      args:
+        executable: /bin/bash
+
+    - name: Check uncompressed database dump size
+      shell: |
+        set -euo pipefail
+        gzip -dc "{{ remote_backup_dir }}/{{ db_backup_filename }}" | wc -c
+      args:
+        executable: /bin/bash
+      register: db_uncompressed_size
+      changed_when: false
+
+    - name: Check uncompressed Django backup size
+      shell: |
+        set -euo pipefail
+        gzip -dc "{{ remote_backup_dir }}/{{ django_backup_filename }}" | wc -c
+      args:
+        executable: /bin/bash
+      register: django_uncompressed_size
+      changed_when: false
+
+    - name: Check database backup file
+      stat:
+        path: "{{ remote_backup_dir }}/{{ db_backup_filename }}"
+      register: db_backup_stat
+
+    - name: Check media backup file
+      stat:
+        path: "{{ remote_backup_dir }}/{{ media_backup_filename }}"
+      register: media_backup_stat
+
+    - name: Check Django backup file
+      stat:
+        path: "{{ remote_backup_dir }}/{{ django_backup_filename }}"
+      register: django_backup_stat
+
+    - name: Fail if database backup is empty
+      fail:
+        msg: "Database backup missing or empty: {{ remote_backup_dir }}/{{ db_backup_filename }}"
+      when: (not db_backup_stat.stat.exists) or ((db_backup_stat.stat.size | default(0) | int) == 0)
+
+    - name: Fail if media backup is empty
+      fail:
+        msg: "Media backup missing or empty: {{ remote_backup_dir }}/{{ media_backup_filename }}"
+      when: (not media_backup_stat.stat.exists) or ((media_backup_stat.stat.size | default(0) | int) == 0)
+
+    - name: Fail if Django backup is empty
+      fail:
+        msg: "Django backup missing or empty: {{ remote_backup_dir }}/{{ django_backup_filename }}"
+      when: (not django_backup_stat.stat.exists) or ((django_backup_stat.stat.size | default(0) | int) == 0)
+
+    - name: Fail if uncompressed database dump is empty
+      fail:
+        msg: "Database backup has empty content: {{ remote_backup_dir }}/{{ db_backup_filename }}"
+      when: (db_uncompressed_size.stdout | trim | int) == 0
+
+    - name: Fail if uncompressed Django backup is empty
+      fail:
+        msg: "Django backup has empty content: {{ remote_backup_dir }}/{{ django_backup_filename }}"
+      when: (django_uncompressed_size.stdout | trim | int) == 0
+
+    - name: Create local backup directory
+      delegate_to: localhost
+      file:
+        path: "{{ local_backup_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Download database backup
+      fetch:
+        src: "{{ remote_backup_dir }}/{{ db_backup_filename }}"
+        dest: "{{ local_backup_dir }}/{{ db_backup_filename }}"
+        flat: true
+
+    - name: Download media backup
+      fetch:
+        src: "{{ remote_backup_dir }}/{{ media_backup_filename }}"
+        dest: "{{ local_backup_dir }}/{{ media_backup_filename }}"
+        flat: true
+
+    - name: Download Django backup
+      fetch:
+        src: "{{ remote_backup_dir }}/{{ django_backup_filename }}"
+        dest: "{{ local_backup_dir }}/{{ django_backup_filename }}"
+        flat: true
+
+    - name: Cleanup remote backup directory
+      file:
+        path: "{{ remote_backup_dir }}"
+        state: absent
+
+    - name: Show local backup path
+      delegate_to: localhost
+      debug:
+        msg: "Backup saved to {{ local_backup_dir }}"
+
+    - name: Show local database dump file
+      delegate_to: localhost
+      debug:
+        msg: "Database dump: {{ local_db_backup_file }}"
+
+    - name: Show local media archive file
+      delegate_to: localhost
+      debug:
+        msg: "Media archive: {{ local_media_backup_file }}"
+
+    - name: Show local Django backup file
+      delegate_to: localhost
+      debug:
+        msg: "Django backup: {{ local_django_backup_file }}"

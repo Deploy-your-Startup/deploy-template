@@ -1,0 +1,100 @@
+---
+# =============================================================================
+# HETZNER FIREWALL CONFIGURATION
+# =============================================================================
+# Einfache Regeln:
+# - SSH, HTTP, HTTPS von überall
+# - Alles andere nur aus dem privaten Netzwerk
+# =============================================================================
+
+- name: "Get all project servers"
+  hetzner.hcloud.server_info:
+  register: hcloud_servers
+
+- name: "Extract server IPs"
+  set_fact:
+    cluster_server_ips: >-
+      {{ hcloud_servers.hcloud_server_info 
+         | selectattr('name', 'match', project_name + '-.*') 
+         | map(attribute='ipv4_address') 
+         | map('regex_replace', '^(.*)$', '\1/32')
+         | list }}
+
+- name: "Create Hetzner Firewall"
+  hetzner.hcloud.firewall:
+    name: "{{ firewall_name }}"
+    state: present
+    rules:
+      # --- PUBLIC ACCESS ---
+      - direction: in
+        protocol: tcp
+        port: "22"
+        source_ips:
+          - 0.0.0.0/0
+          - ::/0
+        description: "SSH"
+
+      - direction: in
+        protocol: tcp
+        port: "80"
+        source_ips:
+          - 0.0.0.0/0
+          - ::/0
+        description: "HTTP"
+
+      - direction: in
+        protocol: tcp
+        port: "443"
+        source_ips:
+          - 0.0.0.0/0
+          - ::/0
+        description: "HTTPS"
+
+      # --- PRIVATE NETWORK ACCESS (Cluster-intern) ---
+      - direction: in
+        protocol: tcp
+        port: any
+        source_ips:
+          - "{{ network_ip_range }}"
+        description: "All TCP from private network"
+
+      - direction: in
+        protocol: udp
+        port: any
+        source_ips:
+          - "{{ network_ip_range }}"
+        description: "All UDP from private network"
+
+      - direction: in
+        protocol: icmp
+        source_ips:
+          - "{{ network_ip_range }}"
+        description: "ICMP from private network"
+
+      # --- CLUSTER NODES (Public IP Fallback) ---
+      - direction: in
+        protocol: tcp
+        port: any
+        source_ips: "{{ cluster_server_ips }}"
+        description: "All TCP from cluster nodes"
+
+      - direction: in
+        protocol: udp
+        port: any
+        source_ips: "{{ cluster_server_ips }}"
+        description: "All UDP from cluster nodes"
+
+- name: "Get server names for firewall"
+  set_fact:
+    firewall_servers: >-
+      {{ groups['all'] 
+         | select('match', project_name + '-.*') 
+         | list }}
+
+- name: "Apply firewall to servers"
+  hetzner.hcloud.firewall_resource:
+    firewall: "{{ firewall_name }}"
+    servers:
+      - "{{ item }}"
+    state: present
+  loop: "{{ firewall_servers }}"

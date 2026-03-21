@@ -1,0 +1,23 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: longhorn
+  namespace: kube-system
+spec:
+  # Helm chart repository and chart name
+  repo: "https://charts.longhorn.io"
+  chart: "longhorn"
+  version: "{{ longhorn_version }}"
+
+  # Namespace where longhorn will be deployed
+  targetNamespace: "{{ longhorn_namespace }}"
+  createNamespace: true
+
+  # Chart values
+  valuesContent: |-
+    defaultSettings:
+      defaultReplicaCount: {{ longhorn_replica_count }}
+      backupstorePollInterval: {{ longhorn_backup_poll_interval }}
+    
+    csi:
+      kubeletRootDir: "{{ kubelet_root_dir }}"

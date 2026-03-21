@@ -1,0 +1,32 @@
+name: Export shared Ansible roles
+description: Copy shared Ansible roles and assets into a target directory
+inputs:
+  destination:
+    description: Destination directory for shared roles
+    required: false
+    default: .shared-roles
+runs:
+  using: composite
+  steps:
+    - name: Export shared roles
+      shell: bash
+      env:
+        ACTION_REPO_ROOT: ${{ github.action_path }}
+        DESTINATION_DIR: ${{ inputs.destination }}
+      run: |
+        set -euo pipefail
+        source_root="$(cd "$ACTION_REPO_ROOT/../../.." && pwd)"
+        destination="$GITHUB_WORKSPACE/$DESTINATION_DIR"
+
+        rm -rf "$destination"
+        mkdir -p "$destination"
+
+        cp -R "$source_root/roles" "$destination/roles"
+
+        if [ -f "$source_root/requirements.yml" ]; then
+          cp "$source_root/requirements.yml" "$destination/requirements.yml"
+        fi
+
+        if [ -f "$source_root/backup-playbook.yml" ]; then
+          cp "$source_root/backup-playbook.yml" "$destination/backup-playbook.yml"
+        fi

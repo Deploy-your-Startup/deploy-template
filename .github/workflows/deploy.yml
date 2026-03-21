@@ -1,0 +1,31 @@
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Environment which should be deployed"
+        required: true
+        default: "production"
+        type: string
+    secrets:
+      VAULT_PASSWORD:
+        required: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.environment || github.event.inputs.environment }}-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v6
+
+      - name: "Deploy!!"
+        if: github.event_name != 'pull_request'
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/deploy@main
+        with:
+          environment: ${{ inputs.environment || github.event.inputs.environment || 'production' }}
+          vault_password: ${{ secrets.VAULT_PASSWORD }}

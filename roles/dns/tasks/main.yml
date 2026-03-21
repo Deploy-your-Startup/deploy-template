@@ -1,0 +1,45 @@
+---
+- name: "Set domains list"
+  set_fact:
+    domains: "{{ [base_domain] + additional_domains }}"
+  tags: infrastructure
+
+- name: "Create domains"
+  community.digitalocean.digital_ocean_domain:
+    state: present
+    name: "{{ item }}"
+    oauth_token: "{{ digital_ocean_token | trim }}"
+  loop: "{{ domains }}"
+  loop_control:
+    pause: 5
+  tags: infrastructure
+
+- name: "Add DNS domain entry for @ record"
+  community.digitalocean.digital_ocean_domain_record:
+    state: present
+    domain: "{{ item }}"
+    name: "@"
+    force_update: true
+    type: A
+    data: "{{ loadbalancer_ip }}"
+    ttl: 300
+    oauth_token: "{{ digital_ocean_token | trim }}"
+  loop: "{{ domains }}"
+  loop_control:
+    pause: 5
+  tags: infrastructure
+
+- name: "Add DNS domain entry for wildcard record"
+  community.digitalocean.digital_ocean_domain_record:
+    state: present
+    domain: "{{ item }}"
+    name: "*"
+    force_update: true
+    type: A
+    data: "{{ loadbalancer_ip }}"
+    ttl: 300
+    oauth_token: "{{ digital_ocean_token | trim }}"
+  loop: "{{ domains }}"
+  loop_control:
+    pause: 5
+  tags: infrastructure

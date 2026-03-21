@@ -1,0 +1,10 @@
+---
+- name: "Install cert-manager using Helm CLI"
+  ansible.builtin.include_tasks: install_with_helm.yml
+  when: cert_manager_install_method == "helm"
+  tags: cert-manager
+
+- name: "Install cert-manager using k3s HelmChart resource"
+  ansible.builtin.include_tasks: install_with_k3s_helm.yml
+  when: cert_manager_install_method == "k3s_helm"
+  tags: cert-manager

@@ -1,0 +1,67 @@
+---
+- name: Set primary storage node as the first host in the storage group
+  set_fact:
+    primary_storage_node: "{{ groups['hcloud_type_storage'][0] }}"
+
+- debug:
+    msg: "Primary storage node is {{ primary_storage_node }}"
+
+# Step 1: Retrieve Ceph Configuration Data
+- name: Get Ceph configuration from the primary storage node
+  ansible.builtin.command: microceph.ceph config generate-minimal-conf
+  delegate_to: "{{ primary_storage_node }}"
+  register: ceph_conf_content
+  become: yes
+
+- name: Get Ceph keyring from the primary storage node
+  ansible.builtin.command: microceph.ceph auth get client.admin
+  delegate_to: "{{ primary_storage_node }}"
+  register: ceph_keyring_content
+  become: yes
+
+# Step 2: Ensure the /etc/ceph directory exists on K8s nodes
+- name: Create /etc/ceph directory on K8s node
+  ansible.builtin.file:
+    path: /etc/ceph
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: yes
+
+# Step 3: Write Configuration Files to K8s Nodes
+- name: Write ceph.conf to K8s node
+  ansible.builtin.copy:
+    content: "{{ ceph_conf_content.stdout | trim }}"
+    dest: /etc/ceph/ceph.conf
+    owner: root
+    group: root
+    mode: '0644'
+  become: yes
+
+- name: Write ceph.keyring to K8s node
+  ansible.builtin.copy:
+    content: "{{ ceph_keyring_content.stdout | trim  }}"
+    dest: /etc/ceph/ceph.keyring
+    owner: root
+    group: root
+    mode: '0644'
+  become: yes
+
+# FIXME: Don't know why i have to open them before they are working, there must be something wrong with tab symbols or so
+# Step 4: Open and Save Configuration Files with vim
+- name: Open and save ceph.conf with vim
+  ansible.builtin.shell: "vim -es -c 'wq' /etc/ceph/ceph.conf"
+  become: yes
+
+- name: Open and save ceph.keyring with vim
+  ansible.builtin.shell: "vim -es -c 'wq' /etc/ceph/ceph.keyring"
+  become: yes
+
+# Step 5: Connect with Ceph
+- name: Connect with Ceph
+  ansible.builtin.command: microk8s connect-external-ceph \
+      --ceph-conf /etc/ceph/ceph.conf \
+      --keyring /etc/ceph/ceph.keyring \
+      --rbd-pool microk8s-rbd
+  become: yes

@@ -1,0 +1,98 @@
+name: "Deploy"
+description: "Deploys the application with ansible"
+inputs:
+  environment:
+    description: "Environment which should be deployed"
+    required: true
+    default: "production"
+  service:
+    description: "Service to deploy"
+    required: false
+    default: ""
+  vault_password:
+    description: "Password for ansible vault"
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: "Set up uv"
+      uses: astral-sh/setup-uv@v7
+      with:
+        working-directory: deployment
+        python-version: 3.12.7
+        enable-cache: true
+        cache-dependency-glob: |
+          pyproject.toml
+          uv.lock
+
+    - name: "Sync deployment dependencies with uv"
+      shell: "bash"
+      working-directory: ./deployment
+      run: |
+        uv sync --frozen --python 3.12.7
+
+    - name: "Expose deployment venv executables"
+      shell: "bash"
+      run: |
+        echo "${{ github.workspace }}/deployment/.venv/bin" >> "$GITHUB_PATH"
+
+    - name: Export shared Ansible roles
+      shell: "bash"
+      env:
+        ACTION_REPO_ROOT: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        source_root="$(cd "$ACTION_REPO_ROOT/../../.." && pwd)"
+        destination="${{ github.workspace }}/deployment/.shared-roles"
+
+        rm -rf "$destination"
+        mkdir -p "$destination"
+
+        cp -R "$source_root/roles" "$destination/roles"
+
+        if [ -f "$source_root/requirements.yml" ]; then
+          cp "$source_root/requirements.yml" "$destination/requirements.yml"
+        fi
+
+        if [ -f "$source_root/backup-playbook.yml" ]; then
+          cp "$source_root/backup-playbook.yml" "$destination/backup-playbook.yml"
+        fi
+
+    - name: Cache Ansible collections
+      id: cache-collections
+      uses: actions/cache@v5
+      with:
+        path: ~/.ansible/collections
+        key: ansible-collections-${{ runner.os }}-${{ hashFiles('deployment/requirements.yml', 'deployment/.shared-roles/requirements.yml') }}
+        restore-keys: |
+          ansible-collections-${{ runner.os }}-
+    
+    - name: Setup shared Ansible roles and collections
+      shell: "bash"
+      working-directory: ./deployment
+      run: |
+        ./make.sh setup_ansible --no-refresh
+    
+    - name: "Start ssh agent and add ssh key to ssh-agent"
+      shell: "bash"
+      working-directory: ./deployment
+      env:
+        SSH_AUTH_SOCK: /tmp/ssh_agent.sock
+      run: |
+        ssh-agent -a $SSH_AUTH_SOCK > /dev/null &&
+        echo ${{ inputs.vault_password }} | ansible-vault view ci_ssh_key --vault-password-file /bin/cat | ssh-add -
+    
+    - name: "Deploy frontend"
+      shell: "bash"
+      if: github.event_name != 'pull_request'
+      env:
+        SSH_AUTH_SOCK: /tmp/ssh_agent.sock
+      working-directory: ./deployment
+      run: |
+        if [ "${{ inputs.service }}" = "infrastructure" ]; then
+          ./make.sh infrastructure --vault_password ${{ inputs.vault_password }} --environment ${{ inputs.environment }} --no-refresh
+        elif [ -z "${{ inputs.service }}" ]; then
+          ./make.sh deploy --vault_password ${{ inputs.vault_password }} --environment ${{ inputs.environment }} --no-refresh
+        else
+          ./make.sh deploy --vault_password ${{ inputs.vault_password }} --environment ${{ inputs.environment }} --service ${{ inputs.service }} --no-refresh
+        fi

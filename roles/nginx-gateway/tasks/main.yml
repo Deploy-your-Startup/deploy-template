@@ -1,0 +1,37 @@
+- name: "Create nginx-gateway namespace"
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: nginx-gateway
+  tags: nginx-gateway
+
+- name: "Install NGINX Gateway Fabric using Helm"
+  kubernetes.core.helm:
+    name: ngf
+    chart_ref: oci://ghcr.io/nginx/charts/nginx-gateway-fabric
+    release_namespace: nginx-gateway
+    create_namespace: true
+  tags: nginx-gateway
+
+- name: "Wait for NGINX Gateway Fabric to be ready"
+  k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: ngf-nginx-gateway-fabric
+    namespace: nginx-gateway
+    wait: true
+    wait_condition:
+      type: Available
+      status: "True"
+    wait_timeout: 300
+  tags: nginx-gateway
+
+- name: "Apply Gateway resource"
+  k8s:
+    state: present
+    namespace: nginx-gateway
+    definition: "{{ lookup('template', 'gateway.yml') }}"
+  tags: nginx-gateway
