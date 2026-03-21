@@ -1,0 +1,112 @@
+name: Build and Deploy Service
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Environment to deploy"
+        required: true
+        default: production
+        type: string
+      service:
+        description: "Service to build and deploy (e.g., backend, frontend)"
+        required: true
+        type: string
+      run_tests:
+        description: "Whether to run tests"
+        required: false
+        default: true
+        type: boolean
+      platforms:
+        description: "Comma‑separated list of target platforms (e.g. linux/amd64,linux/arm64)"
+        required: false
+        default: "linux/amd64"
+        type: string
+      additional_build_context:
+        description: "key=path pairs for additional build contexts in docker e.g. shared=../shared"
+        required: false
+        default: ""
+        type: string
+    secrets:
+      VAULT_PASSWORD:
+        required: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.environment }}-${{ inputs.service }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-${{ inputs.service }}
+  DOCKER_IMAGE_TAG: ${{ github.run_number }}
+  DEPLOY_VERSION_PARAMETER_NAME: ${{ inputs.service }}_version
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: test_db
+          POSTGRES_PASSWORD: pa55w0rt
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: "Setup environment"
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/setup-environment@main
+
+      - name: "Log into registry"
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: "Test Docker Image"
+        if: ${{ inputs.run_tests }}
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/docker-test@main
+        with:
+          context: ./${{ inputs.service }}
+          dockerfile: ./${{ inputs.service }}/Dockerfile
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tag: ${{ env.DOCKER_IMAGE_TAG }}
+          database_url: "postgres://postgres:pa55w0rt@localhost:5432/test_db"
+          additional_build_context: ${{ inputs.additional_build_context }}
+
+      - name: "Build and Push Docker Image"
+        uses: docker/build-push-action@v7
+        with:
+          context: ./${{ inputs.service }}
+          file: ./${{ inputs.service }}/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # just pass through whatever platforms the user asked for:
+          platforms: ${{ inputs.platforms }}
+          build-contexts: ${{ inputs.additional_build_context != '' && inputs.additional_build_context || '' }}
+
+
+      - name: "Deploy service"
+        if: github.event_name != 'pull_request'
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/deploy@main
+        with:
+          environment: ${{ inputs.environment }}
+          service: ${{ inputs.service }}
+          vault_password: ${{ secrets.VAULT_PASSWORD }}

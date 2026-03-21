@@ -1,0 +1,22 @@
+---
+- name: Create private network
+  hetzner.hcloud.network:
+    name: "{{ network_name }}"
+    ip_range: "{{ network_ip_range }}"
+    state: present
+  register: private_network
+  tags: infrastructure
+
+- name: Create subnet for cloud servers
+  hetzner.hcloud.subnetwork:
+    network: "{{ network_name }}"
+    ip_range: "{{ subnet_ip_range }}"
+    network_zone: "{{ network_zone }}"
+    type: cloud
+    state: present
+  tags: infrastructure
+
+- name: Store network name for other roles
+  set_fact:
+    hetzner_private_network_name: "{{ network_name }}"
+  tags: infrastructure

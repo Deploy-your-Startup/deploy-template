@@ -1,0 +1,4 @@
+- name: "Apply HelmChartConfig"
+  k8s:
+    state: present
+    definition: "{{ lookup('template', 'helm-chart-config.yml') }}"

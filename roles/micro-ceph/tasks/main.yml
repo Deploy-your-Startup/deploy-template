@@ -1,0 +1,75 @@
+# Set the primary storage node to the first host in the storage group
+- name: Set storage_master_node to the first host in the storage group
+  set_fact:
+    storage_master_node: "{{ groups['hcloud_type_storage'][0] }}"
+  run_once: true
+  changed_when: no
+
+- name: "install snap"
+  apt:
+    name: snapd
+    state: present
+    update_cache: yes
+
+# Install MicroCeph on all storage nodes
+- name: Install MicroCeph
+  ansible.builtin.command: snap install microceph --channel={{ microceph_channel }}
+  become: yes
+  register: microceph_install
+  ignore_errors: yes
+  changed_when: "'microceph ' in microceph_install.stdout and 'installed' in microceph_install.stdout"
+
+# Bootstrap Ceph cluster only on the primary storage node
+- name: Bootstrap Ceph cluster (only on the primary storage node)
+  ansible.builtin.command: microceph cluster bootstrap --cluster-network 10.0.0.0/16 --public-network 10.0.0.0/16
+  become: yes
+  register: bootstrap_output
+  failed_when: >
+    bootstrap_output.rc != 0 and
+    ("already exists" not in bootstrap_output.stderr)
+  changed_when: >
+    bootstrap_output.rc == 0 and
+    ("already exists" not in bootstrap_output.stderr)
+  when: inventory_hostname == storage_master_node
+
+- include_tasks: join_storage_node.yml
+  when:
+    - "'rook-ceph' in microk8s_plugins"
+    - microk8s_plugins['rook-ceph']
+
+# Create virtual disks for Ceph on all machines
+- name: Create virtual disks for Ceph
+  ansible.builtin.shell: |
+    loop_file="$(mktemp -p /mnt XXXX.img)"
+    truncate -s {{ item.size }} "${loop_file}"
+    loop_dev="$(losetup --show -f "${loop_file}")"
+    minor="${loop_dev##/dev/loop}"
+    mknod -m 0660 "/dev/{{ item.name }}" b 7 "${minor}"
+    microceph disk add --wipe "/dev/{{ item.name }}"
+  with_items: "{{ ceph_disks }}"
+  become: yes
+  register: create_disk_output
+  failed_when: create_disk_output.rc != 0 and ("already exists" not in create_disk_output.stderr)
+  changed_when: create_disk_output.rc == 0 and "already exists" not in create_disk_output.stderr
+
+# Set Ceph cluster configurations only on the primary storage node
+- name: Set Ceph cluster configurations (only on the primary storage node)
+  ansible.builtin.shell: |
+    microceph.ceph config set global osd_pool_default_size {{ osd_pool_default_size }}
+    microceph.ceph config set mgr mgr_standby_modules {{ mgr_standby_modules }}
+    microceph.ceph config set osd osd_crush_chooseleaf_type {{ osd_crush_chooseleaf_type }}
+  become: yes
+  register: ceph_config_output
+  failed_when: ceph_config_output.rc != 0
+  when: inventory_hostname == storage_master_node
+
+- name: Create Ceph File System (CephFS) in new osd pools (only on the primary storage node)
+  ansible.builtin.shell: |
+    microceph.ceph osd pool create microk8s-cephfs-metadata  8
+    microceph.ceph osd pool create microk8s-cephfs-data 8
+    microceph.ceph fs new microk8s-fs microk8s-cephfs-metadata microk8s-cephfs-data
+  become: yes
+  register: cephfs_creation_output
+  failed_when: cephfs_creation_output.rc != 0 and ("File system already exists" not in cephfs_creation_output.stderr)
+  changed_when: cephfs_creation_output.rc == 0 and "File system already exists" not in cephfs_creation_output.stderr
+  when: inventory_hostname == storage_master_node

@@ -1,0 +1,29 @@
+- name: "apply postgres secrets"
+  k8s:
+    state: present
+    definition: "{{ lookup('template', 'secrets.yml') }}"
+  tags: postgres
+
+- name: "apply postgres service"
+  k8s:
+    state: present
+    definition: "{{ lookup('template', 'service.yml') }}"
+  tags: postgres
+
+- name: "apply postgres persistent volume claim"
+  k8s:
+    state: present
+    definition: "{{ lookup('template', 'persistent-volume-claim.yml') }}"
+  tags: postgres
+
+- name: "apply postgres persistent volume"
+  k8s:
+    state: present
+    definition: "{{ lookup('template', 'persistent-volume.yml') }}"
+  tags: postgres
+
+- name: "apply postgres deployment"
+  k8s:
+    state: present
+    definition: "{{ lookup('template', 'deployment.yml') }}"
+  tags: postgres

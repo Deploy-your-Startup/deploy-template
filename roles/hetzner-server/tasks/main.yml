@@ -1,0 +1,36 @@
+---
+- name: "Add public ssh keys"
+  hcloud_ssh_key:
+    name: "{{ item.name }}"
+    public_key: "{{ item.key }}"
+    state: present
+  tags: infrastructure
+  loop: "{{ ssh_public_keys }}"
+
+- name: "Create Hetzner Server"
+  hcloud_server:
+    location: "{{ location }}"
+    force: true
+    labels:
+      type: "{{ node_type }}"
+      ingress: "true"
+    name: "{{ project_name }}-{{ node_type }}-{{ item }}"
+    server_type: "{{ server_type }}"
+    ssh_keys: "{{ ssh_public_keys | map(attribute='name') | list }}"
+    image: ubuntu-24.04
+    state: present
+  loop: "{{ range(0, node_count) | list }}"  # Startet bei 0!
+  register: created_servers
+  tags: infrastructure
+
+- name: "Attach server to private network"
+  hetzner.hcloud.server_network:
+    network: "{{ network_name }}"
+    server: "{{ project_name }}-{{ node_type }}-{{ item }}"
+    state: present
+  loop: "{{ range(0, node_count) | list }}"  # Startet bei 0!
+  tags: infrastructure
+
+- name: "Refresh inventory after adding machines"
+  meta: refresh_inventory
+  tags: infrastructure

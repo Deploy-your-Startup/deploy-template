@@ -1,0 +1,5 @@
+- name: "apply docker secrets"
+  k8s:
+    state: present
+    definition: "{{ lookup('template', 'docker-secret.yml') }}"
+  tags: docker-secrets

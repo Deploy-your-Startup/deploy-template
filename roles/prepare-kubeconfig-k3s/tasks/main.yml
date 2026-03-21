@@ -1,0 +1,19 @@
+- name: Create .kube folder if not exists
+  file:
+    path: "{{ kubeconfig_folder }}"
+    state: directory
+  become: yes
+
+- name: Move kubeconfig file to .kube folder
+  command: mv "{{ kubeconfig_source }}" "{{ kubeconfig_destination }}"
+  args:
+    creates: "{{ kubeconfig_destination }}"
+  become: yes
+
+- name: Ensure permissions for the kubeconfig file
+  file:
+    path: "{{ kubeconfig_destination }}"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0600'
+  become: yes

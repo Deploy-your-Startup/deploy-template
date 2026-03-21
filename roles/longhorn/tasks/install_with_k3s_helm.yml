@@ -1,0 +1,24 @@
+---
+- name: Install Longhorn prerequisites (packages)
+  become: true
+  apt:
+    name:
+      - nfs-common
+      - open-iscsi
+    state: present
+    update_cache: true
+
+- name: Ensure iscsid is enabled and running
+  become: true
+  service:
+    name: iscsid
+    enabled: true
+    state: started
+
+- name: "Apply Longhorn HelmChart resource for k3s Helm controller"
+  kubernetes.core.k8s:
+    state: present
+    namespace: "kube-system"   # HelmChart resource must live in kube-system
+    definition: "{{ lookup('template', 'longhorn-helmchart.yaml.j2') }}"
+    wait: true
+  tags: longhorn

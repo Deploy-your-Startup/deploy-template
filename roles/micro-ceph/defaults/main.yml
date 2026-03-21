@@ -1,0 +1,19 @@
+microceph_channel: reef/stable
+# Define Ceph disk configuration variables
+ceph_disks:
+  - { name: "vda", size: "1G" }
+  - { name: "vdb", size: "2G" }
+  - { name: "vdc", size: "5G" }
+
+# Ceph configuration parameters
+# The default number of replicas for each object in the Ceph pool.
+# This defines how many copies of the data will be stored across the cluster.
+osd_pool_default_size: 2
+
+# Enables or disables standby modules for the Ceph Manager (mgr).
+# When set to "false", standby modules are disabled to reduce resource usage.
+mgr_standby_modules: false
+
+# Determines the level at which the CRUSH algorithm chooses devices for data placement.
+# A value of "0" means it chooses individual OSDs (Object Storage Daemons) directly, which can be used for simpler configurations.
+osd_crush_chooseleaf_type: 0

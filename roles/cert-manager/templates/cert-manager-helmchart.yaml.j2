@@ -1,0 +1,25 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: cert-manager
+  namespace: kube-system
+spec:
+  # Helm chart repository and chart name
+  repo: "https://charts.jetstack.io"
+  chart: "cert-manager"
+  version: "{{ cert_manager_chart_version }}"
+
+  # Namespace where cert-manager will be deployed
+  targetNamespace: "{{ cert_manager_namespace }}"
+  createNamespace: true
+
+  # Chart values
+  valuesContent: |-
+    crds:
+      enabled: true
+
+    # Enable Gateway API support by controller configuration
+    config:
+      apiVersion: controller.config.cert-manager.io/v1alpha1
+      kind: ControllerConfiguration
+      enableGatewayAPI: true

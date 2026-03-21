@@ -1,0 +1,11 @@
+name: Setup Environment
+description: Checkout and Setup Docker Buildx
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Docker buildx
+      uses: docker/setup-buildx-action@v3

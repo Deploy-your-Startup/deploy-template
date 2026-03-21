@@ -1,0 +1,8 @@
+- name: Create kubectl config dir for user {{ ansible_user_id }}
+  file:
+    name: "~/.kube"
+    state: directory
+
+- name: Create kubectl config for user {{ ansible_user_id }}
+  shell: "microk8s config > ~/.kube/config"
+  changed_when: false

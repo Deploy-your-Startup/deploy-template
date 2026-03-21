@@ -1,0 +1,4 @@
+server_type: cax11
+node_type: master
+node_count: 1
+location: fsn1

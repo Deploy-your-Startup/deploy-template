@@ -1,0 +1,25 @@
+- name: Create .kube folder if not exists
+  file:
+    path: "{{ kubeconfig_folder }}"
+    state: directory
+    mode: '0700'
+  become: yes
+
+- name: Copy kubeconfig file to .kube/config (overwrite if exists)
+  copy:
+    src: "{{ kubeconfig_source }}"
+    dest: "{{ kubeconfig_destination }}"
+    remote_src: yes
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0600'
+    force: yes
+  become: yes
+
+- name: Ensure permissions for the kubeconfig file
+  file:
+    path: "{{ kubeconfig_destination }}"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0600'
+  become: yes

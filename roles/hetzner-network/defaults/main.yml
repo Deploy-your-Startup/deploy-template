@@ -1,0 +1,6 @@
+---
+# Network configuration for Hetzner Private Network
+network_name: "k8s-network"
+network_ip_range: "10.0.0.0/16"
+subnet_ip_range: "10.0.1.0/24"
+network_zone: eu-central
