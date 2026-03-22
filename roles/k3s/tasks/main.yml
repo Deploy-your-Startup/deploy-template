@@ -51,15 +51,15 @@
 # -----------------------------------------------------------------------------
 - name: "Install first master (cluster-init)"
   shell: |
-    curl -sfL https://get.k3s.io | K3S_TOKEN="{{ k3s_token }}" INSTALL_K3S_EXEC="server \
+    curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="{{ k3s_version }}" K3S_TOKEN="{{ k3s_token }}" INSTALL_K3S_EXEC="server \
       --cluster-init \
       --node-ip={{ node_private_ip }} \
       --flannel-iface={{ flannel_interface }} \
       --tls-san={{ ansible_host }} \
       --tls-san={{ node_private_ip }} \
       --node-label=type=master" sh -
-  args:
-    creates: /etc/rancher/k3s/k3s.yaml
+  register: first_master_install
+  changed_when: "'No change' not in first_master_install.stderr"
   when: is_first_master
 
 - name: "Wait for first master"
@@ -80,15 +80,15 @@
 
 - name: "Join master"
   shell: |
-    curl -sfL https://get.k3s.io | K3S_TOKEN="{{ k3s_token }}" INSTALL_K3S_EXEC="server \
+    curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="{{ k3s_version }}" K3S_TOKEN="{{ k3s_token }}" INSTALL_K3S_EXEC="server \
       --server=https://{{ first_master_ip }}:6443 \
       --node-ip={{ node_private_ip }} \
       --flannel-iface={{ flannel_interface }} \
       --tls-san={{ ansible_host }} \
       --tls-san={{ node_private_ip }} \
       --node-label=type=master" sh -
-  args:
-    creates: /etc/rancher/k3s/k3s.yaml
+  register: join_master_install
+  changed_when: "'No change' not in join_master_install.stderr"
   when: is_master and not is_first_master
 
 # -----------------------------------------------------------------------------
@@ -103,10 +103,10 @@
 
 - name: "Join worker"
   shell: |
-    curl -sfL https://get.k3s.io | K3S_TOKEN="{{ k3s_token }}" K3S_URL="https://{{ first_master_ip }}:6443" INSTALL_K3S_EXEC="agent \
+    curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="{{ k3s_version }}" K3S_TOKEN="{{ k3s_token }}" K3S_URL="https://{{ first_master_ip }}:6443" INSTALL_K3S_EXEC="agent \
       --node-ip={{ node_private_ip }} \
       --flannel-iface={{ flannel_interface }} \
       --node-label=type=worker" sh -
-  args:
-    creates: /var/lib/rancher/k3s/agent/kubelet.kubeconfig
+  register: join_worker_install
+  changed_when: "'No change' not in join_worker_install.stderr"
   when: is_worker
