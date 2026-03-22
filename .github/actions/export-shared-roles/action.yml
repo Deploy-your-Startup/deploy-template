@@ -42,3 +42,7 @@ runs:
         if [ -f "$source_root/backup-playbook.yml" ]; then
           cp "$source_root/backup-playbook.yml" "$destination/backup-playbook.yml"
         fi
+
+        if [ -f "$source_root/restore-playbook.yml" ]; then
+          cp "$source_root/restore-playbook.yml" "$destination/restore-playbook.yml"
+        fi

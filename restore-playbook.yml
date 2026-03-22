@@ -1,0 +1,142 @@
+---
+- hosts: hcloud_type_master
+  gather_facts: false
+  vars:
+    app_name: "{{ project_name }}"
+    restore_env: "{{ restore_environment | default('production', true) }}"
+    should_restore_db: "{{ restore_db | default(true) | bool }}"
+    should_restore_media: "{{ restore_media | default(true) | bool }}"
+    local_db_backup_file: "{{ db_backup_file | default('', true) }}"
+    local_media_backup_file: "{{ media_backup_file | default('', true) }}"
+
+  tasks:
+    - name: Set restore timestamp once
+      set_fact:
+        restore_timestamp: "{{ restore_timestamp | default(lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S'), true) }}"
+
+    - name: Set restore paths
+      set_fact:
+        remote_restore_dir: "/tmp/{{ app_name }}-restore-{{ restore_timestamp }}"
+        remote_db_backup_file: "/tmp/{{ app_name }}-restore-{{ restore_timestamp }}/{{ local_db_backup_file | basename }}"
+        remote_media_backup_file: "/tmp/{{ app_name }}-restore-{{ restore_timestamp }}/{{ local_media_backup_file | basename }}"
+
+    - name: Validate restore selection
+      fail:
+        msg: "Enable restore_db and/or restore_media before running restore."
+      when: not should_restore_db and not should_restore_media
+
+    - name: Validate database dump path
+      fail:
+        msg: "db_backup_file is required when restore_db is enabled."
+      when: should_restore_db and (local_db_backup_file | length == 0)
+
+    - name: Validate media archive path
+      fail:
+        msg: "media_backup_file is required when restore_media is enabled."
+      when: should_restore_media and (local_media_backup_file | length == 0)
+
+    - name: Restore application backup
+      block:
+        - name: Create remote restore directory
+          file:
+            path: "{{ remote_restore_dir }}"
+            state: directory
+            mode: "0755"
+
+        - name: Upload database dump to restore host
+          copy:
+            src: "{{ local_db_backup_file }}"
+            dest: "{{ remote_db_backup_file }}"
+            mode: "0644"
+          when: should_restore_db
+
+        - name: Upload media archive to restore host
+          copy:
+            src: "{{ local_media_backup_file }}"
+            dest: "{{ remote_media_backup_file }}"
+            mode: "0644"
+          when: should_restore_media
+
+        - name: Check uploaded database dump
+          stat:
+            path: "{{ remote_db_backup_file }}"
+          register: db_backup_stat
+          when: should_restore_db
+
+        - name: Check uploaded media archive
+          stat:
+            path: "{{ remote_media_backup_file }}"
+          register: media_backup_stat
+          when: should_restore_media
+
+        - name: Fail if uploaded database dump is empty
+          fail:
+            msg: "Database backup missing or empty: {{ remote_db_backup_file }}"
+          when:
+            - should_restore_db
+            - (not db_backup_stat.stat.exists) or ((db_backup_stat.stat.size | default(0) | int) == 0)
+
+        - name: Fail if uploaded media archive is empty
+          fail:
+            msg: "Media backup missing or empty: {{ remote_media_backup_file }}"
+          when:
+            - should_restore_media
+            - (not media_backup_stat.stat.exists) or ((media_backup_stat.stat.size | default(0) | int) == 0)
+
+        - name: Reset database schema before restore
+          shell: |
+            set -euo pipefail
+            APP_DB_NAME="$(kubectl get secret backend -n default -o jsonpath='{.data.backend_db_name}' | base64 -d)"
+            kubectl exec -n default deploy/postgres -- sh -c "psql -v ON_ERROR_STOP=1 -U \"\$POSTGRES_USER\" -d \"$APP_DB_NAME\" -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'"
+          args:
+            executable: /bin/bash
+          when: should_restore_db
+
+        - name: Restore database dump into postgres deployment
+          shell: |
+            set -euo pipefail
+            APP_DB_NAME="$(kubectl get secret backend -n default -o jsonpath='{.data.backend_db_name}' | base64 -d)"
+            if [[ "{{ remote_db_backup_file }}" == *.gz ]]; then
+              gzip -dc "{{ remote_db_backup_file }}"
+            else
+              cat "{{ remote_db_backup_file }}"
+            fi | kubectl exec -i -n default deploy/postgres -- sh -c "psql -v ON_ERROR_STOP=1 -U \"\$POSTGRES_USER\" -d \"$APP_DB_NAME\""
+          args:
+            executable: /bin/bash
+          when: should_restore_db
+
+        - name: Remove current media directory in backend deployment
+          shell: |
+            set -euo pipefail
+            kubectl exec -n default deploy/backend -- sh -c "mkdir -p /app/media && find /app/media -mindepth 1 -maxdepth 1 -exec rm -rf {} +"
+          args:
+            executable: /bin/bash
+          when: should_restore_media
+
+        - name: Restore media archive into backend deployment
+          shell: |
+            set -euo pipefail
+            if [[ "{{ remote_media_backup_file }}" == *.tar.gz ]] || [[ "{{ remote_media_backup_file }}" == *.tgz ]]; then
+              cat "{{ remote_media_backup_file }}" | kubectl exec -i -n default deploy/backend -- tar -C /app -xzf -
+            else
+              cat "{{ remote_media_backup_file }}" | kubectl exec -i -n default deploy/backend -- tar -C /app -xf -
+            fi
+          args:
+            executable: /bin/bash
+          when: should_restore_media
+
+        - name: Show restored database dump
+          debug:
+            msg: "Restored database dump {{ local_db_backup_file }} into {{ app_name }} ({{ restore_env }})"
+          when: should_restore_db
+
+        - name: Show restored media archive
+          debug:
+            msg: "Restored media archive {{ local_media_backup_file }} into {{ app_name }} ({{ restore_env }})"
+          when: should_restore_media
+
+      always:
+        - name: Cleanup remote restore directory
+          file:
+            path: "{{ remote_restore_dir }}"
+            state: absent
