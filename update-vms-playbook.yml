@@ -1,5 +1,5 @@
 ---
-- hosts: all
+- hosts: all:!provision-infrastructure
   become: true
   gather_facts: true
   vars:
