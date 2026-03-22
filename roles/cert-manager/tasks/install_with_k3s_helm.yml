@@ -70,3 +70,9 @@
     state: present
     definition: "{{ lookup('template', 'cert-manager-issuers.yml') }}"
   tags: cert-manager
+
+- name: "Apply Traefik redirect-to-https middleware"
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'traefik-middleware.yml') }}"
+  tags: cert-manager
