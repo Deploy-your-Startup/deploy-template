@@ -6,18 +6,21 @@
   register: private_ip_result
   changed_when: false
 
-- name: "Set node private IP"
+- name: "Set node IP (private if available, otherwise public)"
   set_fact:
-    node_private_ip: "{{ private_ip_result.stdout }}"
+    node_private_ip: "{{ private_ip_result.stdout | default('', true) }}"
+    has_private_network: "{{ private_ip_result.stdout | default('', true) | length > 0 }}"
 
 - name: "Get flannel interface"
   shell: ip -o addr show | grep "{{ node_private_ip }}" | awk '{print $2}'
   register: flannel_iface_result
   changed_when: false
+  when: has_private_network
 
 - name: "Set flannel interface"
   set_fact:
-    flannel_interface: "{{ flannel_iface_result.stdout }}"
+    flannel_interface: "{{ flannel_iface_result.stdout | default('') }}"
+  when: has_private_network
 
 # -----------------------------------------------------------------------------
 # STEP 2: Determine role from hostname
@@ -36,15 +39,16 @@
 # -----------------------------------------------------------------------------
 # STEP 3: Get first master IP
 # -----------------------------------------------------------------------------
-- name: "Get first master IP"
-  shell: ip -o addr show | grep -E "inet 10\.[0-9]+\.[0-9]+\.[0-9]+" | awk '{print $4}' | cut -d'/' -f1 | head -1
+- name: "Get first master private IP"
+  shell: ip -o addr show | grep -v -E 'flannel|cni|veth|docker' | grep -E "inet 10\.[0-9]+\.[0-9]+\.[0-9]+" | awk '{print $4}' | cut -d'/' -f1 | head -1
   register: first_master_ip_result
   delegate_to: "{{ first_master_host }}"
   changed_when: false
+  when: has_private_network
 
 - name: "Set first master IP"
   set_fact:
-    first_master_ip: "{{ first_master_ip_result.stdout }}"
+    first_master_ip: "{{ first_master_ip_result.stdout if has_private_network else hostvars[first_master_host]['ansible_host'] }}"
 
 # -----------------------------------------------------------------------------
 # STEP 4: First master - cluster init
@@ -53,10 +57,10 @@
   shell: |
     curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="{{ k3s_version }}" K3S_TOKEN="{{ k3s_token }}" INSTALL_K3S_EXEC="server \
       --cluster-init \
-      --node-ip={{ node_private_ip }} \
+      {% if has_private_network %}--node-ip={{ node_private_ip }} \
       --flannel-iface={{ flannel_interface }} \
-      --tls-san={{ ansible_host }} \
       --tls-san={{ node_private_ip }} \
+      {% endif %}--tls-san={{ ansible_host }} \
       --node-label=type=master" sh -
   register: first_master_install
   changed_when: "'No change' not in first_master_install.stderr"
@@ -82,10 +86,10 @@
   shell: |
     curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="{{ k3s_version }}" K3S_TOKEN="{{ k3s_token }}" INSTALL_K3S_EXEC="server \
       --server=https://{{ first_master_ip }}:6443 \
-      --node-ip={{ node_private_ip }} \
+      {% if has_private_network %}--node-ip={{ node_private_ip }} \
       --flannel-iface={{ flannel_interface }} \
-      --tls-san={{ ansible_host }} \
       --tls-san={{ node_private_ip }} \
+      {% endif %}--tls-san={{ ansible_host }} \
       --node-label=type=master" sh -
   register: join_master_install
   changed_when: "'No change' not in join_master_install.stderr"
@@ -104,9 +108,9 @@
 - name: "Join worker"
   shell: |
     curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="{{ k3s_version }}" K3S_TOKEN="{{ k3s_token }}" K3S_URL="https://{{ first_master_ip }}:6443" INSTALL_K3S_EXEC="agent \
-      --node-ip={{ node_private_ip }} \
+      {% if has_private_network %}--node-ip={{ node_private_ip }} \
       --flannel-iface={{ flannel_interface }} \
-      --node-label=type=worker" sh -
+      {% endif %}--node-label=type=worker" sh -
   register: join_worker_install
   changed_when: "'No change' not in join_worker_install.stderr"
   when: is_worker
