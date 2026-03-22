@@ -51,7 +51,7 @@ so projects only need one synced private repository.
 - **Location**: `.github/actions/export-shared-roles/action.yml`
 - **Purpose**: Copy the bundled shared roles into `deployment/.shared-roles`
 - **Features**:
-  - Exports `roles/`, `requirements.yml`, and `backup-playbook.yml`
+  - Exports `roles/`, `requirements.yml`, `backup-playbook.yml`, and `restore-playbook.yml`
   - Keeps CI secret-free for shared roles access
 
 ### Docker Test Action
