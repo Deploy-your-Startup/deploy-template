@@ -2,7 +2,7 @@
 # STEP 1: Get network info directly from server
 # -----------------------------------------------------------------------------
 - name: "Get private IP"
-  shell: ip -o addr show | grep -E "inet 10\.[0-9]+\.[0-9]+\.[0-9]+" | awk '{print $4}' | cut -d'/' -f1 | head -1
+  shell: ip -o addr show | grep -v -E 'flannel|cni|veth|docker' | grep -E "inet 10\.[0-9]+\.[0-9]+\.[0-9]+" | awk '{print $4}' | cut -d'/' -f1 | head -1
   register: private_ip_result
   changed_when: false
 
