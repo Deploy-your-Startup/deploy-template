@@ -87,7 +87,12 @@
           shell: |
             set -euo pipefail
             APP_DB_NAME="$(kubectl get secret backend -n default -o jsonpath='{.data.backend_db_name}' | base64 -d)"
-            kubectl exec -n default deploy/postgres -- sh -c "psql -v ON_ERROR_STOP=1 -U \"\$POSTGRES_USER\" -d \"$APP_DB_NAME\" -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'"
+            APP_DB_USER="$(kubectl get secret backend -n default -o jsonpath='{.data.backend_db_user}' | base64 -d)"
+            kubectl exec -n default deploy/postgres -- sh -c "psql -v ON_ERROR_STOP=1 -U \"\$POSTGRES_USER\" -d \"$APP_DB_NAME\" <<'SQL'
+            DROP SCHEMA public CASCADE;
+            CREATE SCHEMA public AUTHORIZATION \"$APP_DB_USER\";
+            GRANT ALL ON SCHEMA public TO \"$APP_DB_USER\";
+            SQL"
           args:
             executable: /bin/bash
           when: should_restore_db
@@ -96,11 +101,23 @@
           shell: |
             set -euo pipefail
             APP_DB_NAME="$(kubectl get secret backend -n default -o jsonpath='{.data.backend_db_name}' | base64 -d)"
+            APP_DB_USER="$(kubectl get secret backend -n default -o jsonpath='{.data.backend_db_user}' | base64 -d)"
+            APP_DB_PASSWORD="$(kubectl get secret backend -n default -o jsonpath='{.data.backend_db_password}' | base64 -d)"
             if [[ "{{ remote_db_backup_file }}" == *.gz ]]; then
               gzip -dc "{{ remote_db_backup_file }}"
             else
               cat "{{ remote_db_backup_file }}"
-            fi | kubectl exec -i -n default deploy/postgres -- sh -c "psql -v ON_ERROR_STOP=1 -U \"\$POSTGRES_USER\" -d \"$APP_DB_NAME\""
+            fi | kubectl exec -i -n default deploy/postgres -- sh -c "PGPASSWORD=\"$APP_DB_PASSWORD\" psql -v ON_ERROR_STOP=1 -U \"$APP_DB_USER\" -d \"$APP_DB_NAME\""
+          args:
+            executable: /bin/bash
+          when: should_restore_db
+
+        - name: Verify restored schema ownership
+          shell: |
+            set -euo pipefail
+            APP_DB_NAME="$(kubectl get secret backend -n default -o jsonpath='{.data.backend_db_name}' | base64 -d)"
+            APP_DB_USER="$(kubectl get secret backend -n default -o jsonpath='{.data.backend_db_user}' | base64 -d)"
+            kubectl exec -n default deploy/postgres -- sh -c "psql -v ON_ERROR_STOP=1 -U \"\$POSTGRES_USER\" -d \"$APP_DB_NAME\" -tAc \"SELECT schema_owner = '$APP_DB_USER' FROM information_schema.schemata WHERE schema_name = 'public';\"" | grep -qx 't'
           args:
             executable: /bin/bash
           when: should_restore_db
