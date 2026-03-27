@@ -14,7 +14,10 @@ spec:
       name: letsencrypt-prod
     solvers:
     - dns01:
-        digitalocean:
-          tokenSecretRef:
-            name: digitalocean-dns
-            key: access-token
+        webhook:
+          groupName: acme.hetzner.com
+          solverName: hetzner
+          config:
+            tokenSecretKeyRef:
+              name: hetzner
+              key: token
