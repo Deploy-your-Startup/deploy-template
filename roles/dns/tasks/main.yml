@@ -4,42 +4,107 @@
     domains: "{{ [base_domain] + additional_domains }}"
   tags: infrastructure
 
-- name: "Create domains"
-  community.digitalocean.digital_ocean_domain:
-    state: present
+- name: "Extract zone names from domains (strip subdomain prefixes)"
+  set_fact:
+    dns_zones: "{{ domains | map('regex_replace', '^.*\\.([^.]+\\.[^.]+)$', '\\1') | unique | list }}"
+  tags: infrastructure
+
+- name: "Build subdomain records list"
+  set_fact:
+    subdomain_records: >-
+      {{
+        domains
+        | select('match', '^.+\..+\..+$')
+        | map('regex_replace', '^(.+)\.([^.]+\.[^.]+)$', '\\1,\\2')
+        | list
+      }}
+  tags: infrastructure
+
+- name: "Create DNS zones in Hetzner"
+  hetzner.hcloud.zone:
     name: "{{ item }}"
-    oauth_token: "{{ digital_ocean_token | trim }}"
-  loop: "{{ domains }}"
-  loop_control:
-    pause: 5
+    mode: primary
+    state: present
+  loop: "{{ dns_zones }}"
+  register: zone_results
+  failed_when:
+    - zone_results is failed
+    - "'already exists' not in (zone_results.msg | default(''))"
   tags: infrastructure
 
-- name: "Add DNS domain entry for @ record"
-  community.digitalocean.digital_ocean_domain_record:
-    state: present
-    domain: "{{ item }}"
+- name: "Get list of zones owned by this project"
+  hetzner.hcloud.zone_info:
+  register: owned_zones_info
+  tags: infrastructure
+
+- name: "Set owned zones list"
+  set_fact:
+    owned_zones: "{{ owned_zones_info.hcloud_zone_info | map(attribute='name') | list }}"
+  tags: infrastructure
+
+- name: "Show owned zones"
+  debug:
+    msg: "Owned zones: {{ owned_zones }} (requested: {{ dns_zones }})"
+  tags: infrastructure
+
+- name: "Add DNS @ record for each owned zone"
+  hetzner.hcloud.zone_rrset:
+    zone: "{{ item }}"
     name: "@"
-    force_update: true
     type: A
-    data: "{{ loadbalancer_ip }}"
     ttl: 300
-    oauth_token: "{{ digital_ocean_token | trim }}"
-  loop: "{{ domains }}"
-  loop_control:
-    pause: 5
+    records:
+      - value: "{{ loadbalancer_ip }}"
+    state: present
+  loop: "{{ dns_zones | intersect(owned_zones) }}"
   tags: infrastructure
 
-- name: "Add DNS domain entry for wildcard record"
-  community.digitalocean.digital_ocean_domain_record:
-    state: present
-    domain: "{{ item }}"
+- name: "Add DNS wildcard record for each owned zone"
+  hetzner.hcloud.zone_rrset:
+    zone: "{{ item }}"
     name: "*"
-    force_update: true
     type: A
-    data: "{{ loadbalancer_ip }}"
     ttl: 300
-    oauth_token: "{{ digital_ocean_token | trim }}"
-  loop: "{{ domains }}"
+    records:
+      - value: "{{ loadbalancer_ip }}"
+    state: present
+  loop: "{{ dns_zones | intersect(owned_zones) }}"
+  tags: infrastructure
+
+- name: "Add DNS records for subdomains (e.g. www)"
+  hetzner.hcloud.zone_rrset:
+    zone: "{{ item.split(',')[1] }}"
+    name: "{{ item.split(',')[0] }}"
+    type: A
+    ttl: 300
+    records:
+      - value: "{{ loadbalancer_ip }}"
+    state: present
+  loop: "{{ subdomain_records }}"
+  when:
+    - subdomain_records | length > 0
+    - item.split(',')[1] in owned_zones
+  tags: infrastructure
+
+- name: "Add extra DNS records per zone"
+  hetzner.hcloud.zone_rrset:
+    zone: "{{ item.0.key }}"
+    name: "{{ item.1.name }}"
+    type: "{{ item.1.type }}"
+    ttl: "{{ item.1.ttl }}"
+    records: "{{ item.1.records }}"
+    state: present
+  loop: "{{ extra_dns_records | dict2items | subelements('value') }}"
   loop_control:
-    pause: 5
+    label: "{{ item.1.type }} {{ item.1.name }}.{{ item.0.key }}"
+  when:
+    - extra_dns_records is defined
+    - item.0.key in owned_zones
+  tags: infrastructure
+
+- name: "Warn about zones not owned by this project"
+  debug:
+    msg: "WARNING: Zone '{{ item }}' exists globally but is not owned by this project. Delete it from dns.hetzner.com first."
+  loop: "{{ dns_zones | difference(owned_zones) }}"
+  when: dns_zones | difference(owned_zones) | length > 0
   tags: infrastructure
