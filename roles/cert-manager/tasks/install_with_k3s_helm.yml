@@ -16,7 +16,7 @@
 - name: "Apply cert-manager HelmChart resource for k3s Helm controller"
   kubernetes.core.k8s:
     state: present
-    namespace: "kube-system"   # HelmChart resource must live in kube-system
+    namespace: "kube-system"
     definition: "{{ lookup('template', 'cert-manager-helmchart.yaml.j2') }}"
     wait: true
   tags: cert-manager
@@ -59,10 +59,32 @@
   delay: 10
   tags: cert-manager
 
-- name: "Apply DigitalOcean secret for DNS-01"
+- name: "Apply Hetzner webhook HelmChart resource"
   kubernetes.core.k8s:
     state: present
-    definition: "{{ lookup('template', 'digitalocean-secret.yml') }}"
+    namespace: "kube-system"
+    definition: "{{ lookup('template', 'webhook-helmchart.yaml.j2') }}"
+    wait: true
+  tags: cert-manager
+
+- name: "Wait for Hetzner webhook deployment to be ready"
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    namespace: cert-manager
+    name: cert-manager-webhook-hetzner
+  register: webhook_deployment
+  until: >
+    webhook_deployment.resources | length > 0 and
+    webhook_deployment.resources[0].status.readyReplicas is defined and
+    webhook_deployment.resources[0].status.readyReplicas >= 1
+  retries: 30
+  delay: 10
+  tags: cert-manager
+
+- name: "Apply Hetzner secret for DNS-01"
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'hetzner-secret.yml') }}"
   tags: cert-manager
 
 - name: "Apply cert-manager issuers"
