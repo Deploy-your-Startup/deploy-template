@@ -12,3 +12,6 @@ gateway_api_version: "v1.0.0"
 
 # Where to store temporary manifest files
 cert_manager_tmp_dir: "/tmp"
+
+# Challenge solver: "http01" (default, no token needed) or "dns01" (requires HCLOUD_TOKEN)
+cert_manager_solver: "http01"

@@ -13,6 +13,7 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-prod
     solvers:
+{% if cert_manager_solver == "dns01" %}
     - dns01:
         webhook:
           groupName: acme.hetzner.com
@@ -21,3 +22,8 @@ spec:
             tokenSecretKeyRef:
               name: hetzner
               key: token
+{% else %}
+    - http01:
+        ingress:
+          ingressClassName: traefik
+{% endif %}
