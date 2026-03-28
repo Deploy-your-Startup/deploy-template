@@ -1,4 +1,0 @@
----
-- name: "Delegate dns role to hetzner-dns"
-  import_role:
-    name: hetzner-dns
