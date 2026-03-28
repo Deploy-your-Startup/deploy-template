@@ -65,6 +65,7 @@
     namespace: "kube-system"
     definition: "{{ lookup('template', 'webhook-helmchart.yaml.j2') }}"
     wait: true
+  when: cert_manager_solver == "dns01"
   tags: cert-manager
 
 - name: "Wait for Hetzner webhook deployment to be ready"
@@ -79,12 +80,14 @@
     webhook_deployment.resources[0].status.readyReplicas >= 1
   retries: 30
   delay: 10
+  when: cert_manager_solver == "dns01"
   tags: cert-manager
 
 - name: "Apply Hetzner secret for DNS-01"
   kubernetes.core.k8s:
     state: present
     definition: "{{ lookup('template', 'hetzner-secret.yml') }}"
+  when: cert_manager_solver == "dns01"
   tags: cert-manager
 
 - name: "Apply cert-manager issuers"
