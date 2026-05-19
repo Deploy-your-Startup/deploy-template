@@ -26,8 +26,4 @@ spec:
     - http01:
         ingress:
           ingressClassName: traefik
-          ingressTemplate:
-            metadata:
-              annotations:
-                traefik.ingress.kubernetes.io/router.priority: "1000"
 {% endif %}
