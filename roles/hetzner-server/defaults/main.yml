@@ -1,4 +1,4 @@
-server_type: cax11
+server_type: cx23
 node_type: master
 node_count: 1
 location: fsn1
