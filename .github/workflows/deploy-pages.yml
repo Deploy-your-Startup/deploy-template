@@ -1,0 +1,69 @@
+name: Deploy Static Site to Cloudflare Pages
+
+on:
+  workflow_call:
+    inputs:
+      project_name:
+        description: "Cloudflare Pages project name"
+        required: true
+        type: string
+      working_directory:
+        description: "Path to the site source (where package.json lives)"
+        required: false
+        default: frontend
+        type: string
+      node_version:
+        description: "Node.js version"
+        required: false
+        default: "22"
+        type: string
+      build_output:
+        description: "Build output directory, relative to working_directory"
+        required: false
+        default: dist
+        type: string
+      branch:
+        description: "Cloudflare Pages branch to deploy to"
+        required: false
+        default: main
+        type: string
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        required: true
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: pages-deploy-${{ github.ref }}-${{ inputs.project_name }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Publish to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: ${{ inputs.working_directory }}
+          command: pages deploy ${{ inputs.build_output }} --project-name=${{ inputs.project_name }} --branch=${{ inputs.branch }}
