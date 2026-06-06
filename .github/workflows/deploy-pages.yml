@@ -33,10 +33,6 @@ on:
       CLOUDFLARE_ACCOUNT_ID:
         required: true
 
-permissions:
-  contents: read
-  deployments: write
-
 concurrency:
   group: pages-deploy-${{ github.ref }}-${{ inputs.project_name }}
   cancel-in-progress: true
