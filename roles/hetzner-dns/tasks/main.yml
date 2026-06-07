@@ -20,6 +20,14 @@
       }}
   tags: infrastructure
 
+- name: "Classify apex domains (host == its own zone, e.g. example.com)"
+  # Apex = exactly two labels. Subdomains (app.example.com) are handled by
+  # the per-subdomain task below and must NOT get @ or * records, otherwise
+  # they would hijack the whole shared root zone.
+  set_fact:
+    apex_domains: "{{ domains | select('match', '^[^.]+\\.[^.]+$') | list }}"
+  tags: infrastructure
+
 - name: "Create DNS zones in Hetzner"
   hetzner.hcloud.zone:
     name: "{{ item }}"
@@ -47,7 +55,9 @@
     msg: "Owned zones: {{ owned_zones }} (requested: {{ dns_zones }})"
   tags: infrastructure
 
-- name: "Add DNS @ record for each owned zone"
+- name: "Add DNS @ record — only for owned apex domains"
+  # Subdomain deployments (app.example.com) intentionally skip this so they
+  # never claim the apex of a zone they share with other projects.
   hetzner.hcloud.zone_rrset:
     zone: "{{ item }}"
     name: "@"
@@ -56,10 +66,10 @@
     records:
       - value: "{{ loadbalancer_ip }}"
     state: present
-  loop: "{{ dns_zones | intersect(owned_zones) }}"
+  loop: "{{ apex_domains | intersect(owned_zones) }}"
   tags: infrastructure
 
-- name: "Add DNS wildcard record for each owned zone"
+- name: "Add DNS wildcard (*) record — apex only, opt-out via dns_apex_wildcard"
   hetzner.hcloud.zone_rrset:
     zone: "{{ item }}"
     name: "*"
@@ -68,7 +78,8 @@
     records:
       - value: "{{ loadbalancer_ip }}"
     state: present
-  loop: "{{ dns_zones | intersect(owned_zones) }}"
+  loop: "{{ apex_domains | intersect(owned_zones) }}"
+  when: dns_apex_wildcard | default(true) | bool
   tags: infrastructure
 
 - name: "Add DNS records for subdomains (e.g. www)"
