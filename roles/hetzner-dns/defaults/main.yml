@@ -1,0 +1,8 @@
+---
+# Whether owned APEX domains (e.g. example.com) also get a wildcard "*" A
+# record pointing at the load balancer. Subdomain deployments
+# (app.example.com) never get a wildcard regardless of this setting.
+#
+# Set to false in group_vars/<env>.yml when you own the apex but want to
+# manage subdomains yourself / avoid catching every unconfigured host.
+dns_apex_wildcard: true
