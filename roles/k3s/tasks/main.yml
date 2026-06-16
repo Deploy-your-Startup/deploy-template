@@ -51,8 +51,42 @@
     first_master_ip: "{{ first_master_ip_result.stdout if has_private_network else hostvars[first_master_host]['ansible_host'] }}"
 
 # -----------------------------------------------------------------------------
-# STEP 4: First master - cluster init
+# STEP 4: First master - preflight + cluster init
 # -----------------------------------------------------------------------------
+- name: "Check existing k3s data"
+  stat:
+    path: /var/lib/rancher/k3s/server/db
+  register: existing_k3s_db
+  when: is_first_master
+
+- name: "Check existing k3s API"
+  wait_for:
+    host: "127.0.0.1"
+    port: 6443
+    timeout: 5
+  register: existing_k3s_api
+  failed_when: false
+  changed_when: false
+  when: is_first_master and existing_k3s_db.stat.exists
+
+- name: "Fail on stale k3s data"
+  fail:
+    msg: |
+      Existing k3s data was found on this server, but the k3s API is not ready.
+
+      This usually means the VPS was already used for another bootstrap/run and
+      the local datastore is encrypted with a different k3s token. Reusing it
+      would fail with:
+        bootstrap data already found and encrypted with different token
+
+      Use a fresh VPS, or explicitly reset k3s state on this server before
+      running infrastructure again.
+  when:
+    - is_first_master
+    - existing_k3s_db.stat.exists
+    - existing_k3s_api is defined
+    - existing_k3s_api.failed
+
 - name: "Install first master (cluster-init)"
   shell: |
     curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="{{ k3s_version }}" K3S_TOKEN="{{ k3s_token }}" INSTALL_K3S_EXEC="server \
@@ -64,7 +98,7 @@
       --node-label=type=master" sh -
   register: first_master_install
   changed_when: "'No change' not in first_master_install.stderr"
-  when: is_first_master
+  when: is_first_master and not existing_k3s_db.stat.exists
 
 - name: "Wait for first master API"
   block:
