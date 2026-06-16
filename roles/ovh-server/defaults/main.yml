@@ -1,0 +1,19 @@
+---
+ovh_cloud: "ovh"
+
+# OVH region (e.g. GRA11, SBG5, DE1). No default that fits everyone — set per
+# project in group_vars.
+ovh_region: "GRA11"
+
+# OVH flavor (instance size, e.g. d2-4, b2-7) and image name.
+ovh_flavor: "d2-4"
+ovh_image: "Ubuntu 24.04"
+
+# Shared / from network + firewall roles.
+network_name: "k8s-network"
+ovh_public_network: "Ext-Net"
+ovh_security_group: "{{ project_name }}-sg"
+
+# Shared with hetzner-server semantics.
+node_type: master
+node_count: 1

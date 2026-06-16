@@ -1,0 +1,13 @@
+---
+# OVH API endpoint (ovh-eu for European accounts).
+ovh_endpoint: "ovh-eu"
+
+# TTL for the managed A records.
+ovh_dns_ttl: 300
+
+# Whether owned apex zones also get a wildcard "*" record. Subdomain
+# deployments never get one regardless. Shared with hetzner-dns semantics.
+dns_apex_wildcard: true
+
+# Credentials are expected from the vault (group_vars), do not set here:
+#   ovh_application_key, ovh_application_secret, ovh_consumer_key

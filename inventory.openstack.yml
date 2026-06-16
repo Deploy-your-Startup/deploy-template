@@ -1,0 +1,28 @@
+# OVH / OpenStack dynamic inventory (the OVH counterpart to inventory.hcloud.yml).
+#
+# OVH Public Cloud is OpenStack, so the official openstack inventory plugin
+# discovers running instances live — same "no state hand-off" model as hcloud.
+# Auth comes from clouds.yaml (cloud: ovh).
+#
+# Differences from Hetzner to keep in mind when wiring the playbook:
+#   - SSH user is `ubuntu` (not root) on OVH Ubuntu images -> become for root.
+#   - Group names differ from the hcloud plugin. We emit provider-neutral groups
+#     (cluster / cluster_type_master / cluster_type_worker) from instance
+#     metadata so the k3s plays can target the same groups for both providers.
+plugin: openstack.cloud.openstack
+expand_hostvars: true
+all_projects: false
+fail_on_errors: true
+
+# Provider-neutral grouping from instance metadata (type=master|worker).
+keyed_groups:
+  - key: metadata.type
+    prefix: cluster_type
+    separator: "_"
+
+# Every discovered instance also lands in a single `cluster` group.
+groups:
+  cluster: true
+
+compose:
+  ansible_user: "'ubuntu'"
