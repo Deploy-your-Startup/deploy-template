@@ -59,12 +59,9 @@
   register: existing_k3s_db
   when: is_first_master
 
-- name: "Check existing k3s API"
-  wait_for:
-    host: "127.0.0.1"
-    port: 6443
-    timeout: 5
-  register: existing_k3s_api
+- name: "Check existing k3s service"
+  shell: systemctl is-active --quiet k3s
+  register: existing_k3s_service
   failed_when: false
   changed_when: false
   when: is_first_master and existing_k3s_db.stat.exists
@@ -84,8 +81,8 @@
   when:
     - is_first_master
     - existing_k3s_db.stat.exists
-    - existing_k3s_api is defined
-    - existing_k3s_api.failed
+    - existing_k3s_service is defined
+    - existing_k3s_service.rc != 0
 
 - name: "Install first master (cluster-init)"
   shell: |
