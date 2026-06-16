@@ -25,4 +25,7 @@ groups:
   cluster: true
 
 compose:
+  # OVH Ubuntu images log in as `ubuntu`; plays use become for root.
   ansible_user: "'ubuntu'"
+  # Neutral role hostvar (mirrors inventory.hcloud.yml) used by the playbook.
+  node_type: metadata.type
