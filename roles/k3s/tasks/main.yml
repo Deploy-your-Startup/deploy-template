@@ -34,7 +34,7 @@
 
 - name: "Debug"
   debug:
-    msg: "{{ inventory_hostname }} | IP: {{ node_private_ip }} | first_master: {{ is_first_master }} | master: {{ is_master }} | worker: {{ is_worker }}"
+    msg: "{{ inventory_hostname }} | private_ip: {{ node_private_ip | default('none', true) }} | api_ip: {{ first_master_ip | default(ansible_host, true) }} | first_master: {{ is_first_master }} | master: {{ is_master }} | worker: {{ is_worker }}"
 
 # -----------------------------------------------------------------------------
 # STEP 3: Get first master IP
@@ -66,10 +66,34 @@
   changed_when: "'No change' not in first_master_install.stderr"
   when: is_first_master
 
-- name: "Wait for first master"
-  wait_for:
-    port: 6443
-    timeout: 120
+- name: "Wait for first master API"
+  block:
+    - name: "Wait for first master API"
+      wait_for:
+        host: "127.0.0.1"
+        port: 6443
+        timeout: 180
+  rescue:
+    - name: "Show k3s service status"
+      shell: systemctl status k3s --no-pager || true
+      register: k3s_status
+      changed_when: false
+
+    - name: "Show recent k3s logs"
+      shell: journalctl -u k3s --no-pager -n 120 || true
+      register: k3s_logs
+      changed_when: false
+
+    - name: "Fail with k3s diagnostics"
+      fail:
+        msg: |
+          k3s API did not become ready on 127.0.0.1:6443.
+
+          systemctl status k3s:
+          {{ k3s_status.stdout }}
+
+          recent k3s logs:
+          {{ k3s_logs.stdout }}
   when: is_first_master
 
 # -----------------------------------------------------------------------------
