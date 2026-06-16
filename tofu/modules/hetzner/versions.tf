@@ -1,5 +1,6 @@
 terraform {
-  required_version = ">= 1.6.0"
+  # 1.10+: native S3 state locking (use_lockfile), enforced by the startup CLI.
+  required_version = ">= 1.10.0"
 
   required_providers {
     hcloud = {
