@@ -1,0 +1,72 @@
+---
+# =============================================================================
+# OVH FIREWALL (OpenStack security group) — mirrors roles/hetzner-firewall
+# =============================================================================
+# Public: SSH (22), HTTP (80), HTTPS (443), Kubernetes API (6443).
+# Cluster-internal: everything from the private subnet.
+# The group is attached to instances at creation (ovh-server), so this role
+# must run BEFORE ovh-server.
+# =============================================================================
+
+- name: "Create security group"
+  openstack.cloud.security_group:
+    cloud: "{{ ovh_cloud }}"
+    name: "{{ ovh_security_group }}"
+    description: "{{ project_name }} cluster firewall"
+    state: present
+  tags: infrastructure
+
+- name: "Public ingress rules (SSH/HTTP/HTTPS/k8s-API)"
+  openstack.cloud.security_group_rule:
+    cloud: "{{ ovh_cloud }}"
+    security_group: "{{ ovh_security_group }}"
+    direction: ingress
+    ethertype: IPv4
+    protocol: tcp
+    port_range_min: "{{ item }}"
+    port_range_max: "{{ item }}"
+    remote_ip_prefix: 0.0.0.0/0
+    state: present
+  loop:
+    - 22
+    - 80
+    - 443
+    - 6443
+  tags: infrastructure
+
+- name: "Cluster-internal TCP from the private subnet"
+  openstack.cloud.security_group_rule:
+    cloud: "{{ ovh_cloud }}"
+    security_group: "{{ ovh_security_group }}"
+    direction: ingress
+    ethertype: IPv4
+    protocol: tcp
+    port_range_min: 1
+    port_range_max: 65535
+    remote_ip_prefix: "{{ subnet_ip_range }}"
+    state: present
+  tags: infrastructure
+
+- name: "Cluster-internal UDP from the private subnet"
+  openstack.cloud.security_group_rule:
+    cloud: "{{ ovh_cloud }}"
+    security_group: "{{ ovh_security_group }}"
+    direction: ingress
+    ethertype: IPv4
+    protocol: udp
+    port_range_min: 1
+    port_range_max: 65535
+    remote_ip_prefix: "{{ subnet_ip_range }}"
+    state: present
+  tags: infrastructure
+
+- name: "Cluster-internal ICMP from the private subnet"
+  openstack.cloud.security_group_rule:
+    cloud: "{{ ovh_cloud }}"
+    security_group: "{{ ovh_security_group }}"
+    direction: ingress
+    ethertype: IPv4
+    protocol: icmp
+    remote_ip_prefix: "{{ subnet_ip_range }}"
+    state: present
+  tags: infrastructure

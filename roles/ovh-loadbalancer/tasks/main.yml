@@ -1,0 +1,83 @@
+---
+# =============================================================================
+# OVH LOAD BALANCER (OpenStack Octavia) — mirrors roles/hetzner-loadbalancer
+# =============================================================================
+# Optional (create_load_balancer). Unlike Hetzner's label selector, Octavia
+# needs explicit members, so we look up the cluster nodes and add each as a
+# member. HTTP 80 -> nodeport 30080, HTTPS 443 -> nodeport 30443.
+# =============================================================================
+
+- name: "Create load balancer"
+  openstack.cloud.loadbalancer:
+    cloud: "{{ ovh_cloud }}"
+    name: "{{ project_name }}-lb"
+    vip_subnet: "{{ network_name }}-subnet"
+    state: present
+  register: ovh_lb
+  tags: infrastructure
+
+- name: "Find cluster nodes (by metadata)"
+  openstack.cloud.server_info:
+    cloud: "{{ ovh_cloud }}"
+    filters:
+      metadata:
+        project: "{{ project_name }}"
+        ingress: "true"
+  register: ovh_lb_nodes
+  tags: infrastructure
+
+- name: "Create listeners"
+  openstack.cloud.lb_listener:
+    cloud: "{{ ovh_cloud }}"
+    name: "{{ project_name }}-listener-{{ item.listen }}"
+    loadbalancer: "{{ project_name }}-lb"
+    protocol: TCP
+    protocol_port: "{{ item.listen }}"
+    state: present
+  loop:
+    - { listen: 80, backend: 30080 }
+    - { listen: 443, backend: 30443 }
+  tags: infrastructure
+
+- name: "Create pools"
+  openstack.cloud.lb_pool:
+    cloud: "{{ ovh_cloud }}"
+    name: "{{ project_name }}-pool-{{ item.listen }}"
+    listener: "{{ project_name }}-listener-{{ item.listen }}"
+    protocol: TCP
+    lb_algorithm: ROUND_ROBIN
+    state: present
+  loop:
+    - { listen: 80, backend: 30080 }
+    - { listen: 443, backend: 30443 }
+  tags: infrastructure
+
+- name: "Add members (HTTP 80 -> 30080)"
+  openstack.cloud.lb_member:
+    cloud: "{{ ovh_cloud }}"
+    name: "{{ item.name }}-80"
+    pool: "{{ project_name }}-pool-80"
+    address: "{{ item.private_v4 }}"
+    protocol_port: 30080
+    subnet: "{{ network_name }}-subnet"
+    state: present
+  loop: "{{ ovh_lb_nodes.servers | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.private_v4 | default('') | length > 0
+  tags: infrastructure
+
+- name: "Add members (HTTPS 443 -> 30443)"
+  openstack.cloud.lb_member:
+    cloud: "{{ ovh_cloud }}"
+    name: "{{ item.name }}-443"
+    pool: "{{ project_name }}-pool-443"
+    address: "{{ item.private_v4 }}"
+    protocol_port: 30443
+    subnet: "{{ network_name }}-subnet"
+    state: present
+  loop: "{{ ovh_lb_nodes.servers | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.private_v4 | default('') | length > 0
+  tags: infrastructure

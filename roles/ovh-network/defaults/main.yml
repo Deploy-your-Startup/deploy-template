@@ -1,0 +1,10 @@
+---
+# clouds.yaml entry (auth lives in ~/.config/openstack/clouds.yaml or the vault).
+ovh_cloud: "ovh"
+
+# Shared with hetzner-network semantics.
+network_name: "k8s-network"
+subnet_ip_range: "10.0.1.0/24"
+
+# OVH public network that hands out a public IP to attached instances.
+ovh_public_network: "Ext-Net"

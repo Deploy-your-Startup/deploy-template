@@ -6,3 +6,8 @@ collections:
     version: ">=6.0.0"
   - name: kubernetes.core
     version: ">=2.0.0"
+  # OVH provider: OpenStack for compute/network/firewall/LB, synthesio for DNS.
+  - name: openstack.cloud
+    version: ">=2.1.0"
+  - name: synthesio.ovh
+    version: ">=5.0.0"

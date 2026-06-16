@@ -1,0 +1,4 @@
+---
+ovh_cloud: "ovh"
+ovh_security_group: "{{ project_name }}-sg"
+subnet_ip_range: "10.0.1.0/24"

@@ -1,0 +1,82 @@
+---
+# =============================================================================
+# OVH DNS — via synthesio.ovh.domain
+# =============================================================================
+# Mirrors roles/hetzner-dns: apex domains get @ (+ optional *), subdomains get
+# their own A record, and subdomain deployments NEVER touch @/* of a shared
+# zone. The synthesio module manages records within an existing OVH zone and
+# refreshes the zone itself after changes.
+#
+# Note: OVH addresses the zone apex with an EMPTY subdomain name (""), not "@".
+# The OVH zone must already exist in the account (point the domain's
+# nameservers at OVH). Credentials come from the vault (ovh_application_key,
+# ovh_application_secret, ovh_consumer_key).
+# =============================================================================
+
+- name: "Build domains list"
+  set_fact:
+    ovh_domains: "{{ [base_domain] + additional_domains }}"
+  tags: infrastructure
+
+- name: "Classify apex domains (host == its own zone, e.g. example.com)"
+  set_fact:
+    ovh_apex_domains: "{{ ovh_domains | select('match', '^[^.]+\\.[^.]+$') | list }}"
+  tags: infrastructure
+
+- name: "Build subdomain records (3+ labels) -> 'name,zone'"
+  set_fact:
+    ovh_subdomain_records: >-
+      {{
+        ovh_domains
+        | select('match', '^.+\..+\..+$')
+        | map('regex_replace', '^(.+)\.([^.]+\.[^.]+)$', '\1,\2')
+        | list
+      }}
+  tags: infrastructure
+
+# All OVH DNS tasks share the same credentials via module_defaults.
+- name: "Manage OVH DNS records"
+  module_defaults:
+    synthesio.ovh.domain:
+      endpoint: "{{ ovh_endpoint }}"
+      application_key: "{{ ovh_application_key }}"
+      application_secret: "{{ ovh_application_secret }}"
+      consumer_key: "{{ ovh_consumer_key }}"
+  block:
+    - name: "Apex A record (@) — owned apex domains only"
+      synthesio.ovh.domain:
+        domain: "{{ item }}"
+        name: ""
+        record_type: A
+        value:
+          - "{{ loadbalancer_ip }}"
+        record_ttl: "{{ ovh_dns_ttl }}"
+        state: present
+      loop: "{{ ovh_apex_domains }}"
+      tags: infrastructure
+
+    - name: "Apex wildcard (*) A record — apex only, opt-out via dns_apex_wildcard"
+      synthesio.ovh.domain:
+        domain: "{{ item }}"
+        name: "*"
+        record_type: A
+        value:
+          - "{{ loadbalancer_ip }}"
+        record_ttl: "{{ ovh_dns_ttl }}"
+        state: present
+      loop: "{{ ovh_apex_domains }}"
+      when: dns_apex_wildcard | default(true) | bool
+      tags: infrastructure
+
+    - name: "Subdomain A records (e.g. www, app) — own record only"
+      synthesio.ovh.domain:
+        domain: "{{ item.split(',')[1] }}"
+        name: "{{ item.split(',')[0] }}"
+        record_type: A
+        value:
+          - "{{ loadbalancer_ip }}"
+        record_ttl: "{{ ovh_dns_ttl }}"
+        state: present
+      loop: "{{ ovh_subdomain_records }}"
+      when: ovh_subdomain_records | length > 0
+      tags: infrastructure

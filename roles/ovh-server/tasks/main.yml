@@ -1,0 +1,45 @@
+---
+# =============================================================================
+# OVH SERVER (OpenStack) — mirrors roles/hetzner-server
+# =============================================================================
+# Creates the cluster nodes. Each instance attaches to the public network
+# (Ext-Net, for a public IP) and the private network. Metadata (type, ingress)
+# matches the hetzner labels so the dynamic inventory and downstream k3s plays
+# group nodes the same way. Requires the security group (ovh-firewall) to exist.
+# =============================================================================
+
+- name: "Add SSH keypairs"
+  openstack.cloud.keypair:
+    cloud: "{{ ovh_cloud }}"
+    name: "{{ item.name }}"
+    public_key: "{{ item.key }}"
+    state: present
+  loop: "{{ ssh_public_keys }}"
+  tags: infrastructure
+
+- name: "Create instances"
+  openstack.cloud.server:
+    cloud: "{{ ovh_cloud }}"
+    name: "{{ project_name }}-{{ node_type }}-{{ item }}"
+    image: "{{ ovh_image }}"
+    flavor: "{{ ovh_flavor }}"
+    region_name: "{{ ovh_region }}"
+    key_name: "{{ ssh_public_keys[0].name }}"
+    nics:
+      - net-name: "{{ ovh_public_network }}"
+      - net-name: "{{ network_name }}"
+    security_groups:
+      - "{{ ovh_security_group }}"
+    meta:
+      type: "{{ node_type }}"
+      ingress: "true"
+      project: "{{ project_name }}"
+    auto_ip: false
+    state: present
+  loop: "{{ range(0, node_count | int) | list }}"
+  register: ovh_created_servers
+  tags: infrastructure
+
+- name: "Refresh inventory after adding machines"
+  meta: refresh_inventory
+  tags: infrastructure

@@ -2,6 +2,19 @@ plugin: hcloud
 user: root
 status:
   - running
+
+# Provider-neutral grouping (mirrors inventory.openstack.yml) so the playbook
+# targets the same groups for every cloud_provider:
+#   - cluster                       -> every node
+#   - cluster_type_master / _worker -> by role
+#   - node_type hostvar             -> "master" | "worker" (neutral)
 keyed_groups:
-  - key: hcloud_labels
-    prefix: hcloud
+  - key: hcloud_labels.type
+    prefix: cluster_type
+    separator: "_"
+
+groups:
+  cluster: true
+
+compose:
+  node_type: hcloud_labels.type

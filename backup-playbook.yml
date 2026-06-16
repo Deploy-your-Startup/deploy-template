@@ -1,5 +1,5 @@
 ---
-- hosts: hcloud_type_master
+- hosts: cluster_type_master
   gather_facts: false
   vars:
     app_name: "{{ project_name }}"

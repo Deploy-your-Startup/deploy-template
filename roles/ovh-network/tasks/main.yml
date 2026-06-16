@@ -1,0 +1,26 @@
+---
+# =============================================================================
+# OVH NETWORK (OpenStack) — mirrors roles/hetzner-network
+# =============================================================================
+# OVH Public Cloud is OpenStack. Public IPs come from the shared "Ext-Net"
+# public network (no router/floating IP needed); this role creates the private
+# network + subnet for cluster-internal traffic. Instances attach to both.
+# =============================================================================
+
+- name: "Create private network"
+  openstack.cloud.network:
+    cloud: "{{ ovh_cloud }}"
+    name: "{{ network_name }}"
+    state: present
+  tags: infrastructure
+
+- name: "Create subnet for cluster nodes"
+  openstack.cloud.subnet:
+    cloud: "{{ ovh_cloud }}"
+    name: "{{ network_name }}-subnet"
+    network_name: "{{ network_name }}"
+    cidr: "{{ subnet_ip_range }}"
+    ip_version: 4
+    enable_dhcp: true
+    state: present
+  tags: infrastructure
