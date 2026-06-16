@@ -1,0 +1,25 @@
+project_name = "myproject"
+node_count   = 1
+server_type  = "cx23"
+location     = "fsn1"
+
+ssh_public_keys = [
+  {
+    name = "deploy-key"
+    key  = "ssh-ed25519 AAAA... deploy@startup-factory"
+  },
+]
+
+# LB is off by default (matches the role); DNS then points at the master node IP.
+create_load_balancer = false
+
+base_domain        = "example.com"
+additional_domains = ["www.example.com"]
+dns_apex_wildcard  = true
+
+# Optional extra records, keyed by zone name:
+# extra_dns_records = {
+#   "example.com" = [
+#     { name = "mail", type = "MX", ttl = 300, value = "10 mail.example.com." },
+#   ]
+# }

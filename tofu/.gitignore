@@ -1,0 +1,13 @@
+# Local state (use the S3 backend for real deployments)
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Per-deployment secrets / vars
+terraform.tfvars
+*.auto.tfvars
+
+# Plan output
+*.tfplan
+crash.log

@@ -25,6 +25,11 @@ runs:
           pyproject.toml
           uv.lock
 
+    - name: "Set up OpenTofu"
+      uses: opentofu/setup-opentofu@v1
+      with:
+        tofu_version: "1.12.2"
+
     - name: "Sync deployment dependencies with uv"
       shell: "bash"
       working-directory: ./deployment
@@ -49,6 +54,11 @@ runs:
         mkdir -p "$destination"
 
         cp -R "$source_root/roles" "$destination/roles"
+
+        # OpenTofu provisioning modules (replaces the hetzner-* provisioning roles).
+        if [ -d "$source_root/tofu" ]; then
+          cp -R "$source_root/tofu" "$destination/tofu"
+        fi
 
         if [ -f "$source_root/ansible.cfg" ]; then
           cp "$source_root/ansible.cfg" "$destination/ansible.cfg"
