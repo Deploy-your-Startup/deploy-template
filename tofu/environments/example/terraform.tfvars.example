@@ -1,5 +1,6 @@
 project_name = "myproject"
-node_count   = 1
+master_count = 1
+worker_count = 0
 server_type  = "cx23"
 location     = "fsn1"
 

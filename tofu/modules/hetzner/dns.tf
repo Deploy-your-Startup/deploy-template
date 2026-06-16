@@ -49,7 +49,7 @@ locals {
 
   # DNS target: the load balancer when enabled, otherwise the first master node's
   # public IP — matching the role's fallback to hostvars[<project>-master-0].
-  ingress_ip = var.create_load_balancer ? hcloud_load_balancer.this[0].ipv4 : hcloud_server.nodes[0].ipv4_address
+  ingress_ip = var.create_load_balancer ? hcloud_load_balancer.this[0].ipv4 : hcloud_server.masters[0].ipv4_address
 }
 
 resource "hcloud_zone" "apex" {

@@ -20,8 +20,8 @@ module "infra" {
   source = "../../modules/hetzner"
 
   project_name = var.project_name
-  node_count   = var.node_count
-  node_type    = var.node_type
+  master_count = var.master_count
+  worker_count = var.worker_count
   location     = var.location
   server_type  = var.server_type
 

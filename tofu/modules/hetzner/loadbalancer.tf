@@ -25,7 +25,7 @@ resource "hcloud_load_balancer_target" "ingress" {
   label_selector   = "ingress=true"
 
   # Targets are matched by label; ensure nodes exist first.
-  depends_on = [hcloud_server.nodes]
+  depends_on = [hcloud_server.masters, hcloud_server.workers]
 }
 
 resource "hcloud_load_balancer_service" "http" {

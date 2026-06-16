@@ -2,14 +2,14 @@ variable "project_name" {
   type = string
 }
 
-variable "node_count" {
+variable "master_count" {
   type    = number
   default = 1
 }
 
-variable "node_type" {
-  type    = string
-  default = "master"
+variable "worker_count" {
+  type    = number
+  default = 0
 }
 
 variable "location" {

@@ -7,7 +7,7 @@
 
 locals {
   firewall_name    = "${var.project_name}-firewall"
-  cluster_node_ips = [for s in hcloud_server.nodes : "${s.ipv4_address}/32"]
+  cluster_node_ips = [for s in local.all_nodes : "${s.ipv4_address}/32"]
 }
 
 resource "hcloud_firewall" "this" {
@@ -81,5 +81,5 @@ resource "hcloud_firewall" "this" {
 
 resource "hcloud_firewall_attachment" "nodes" {
   firewall_id = hcloud_firewall.this.id
-  server_ids  = [for s in hcloud_server.nodes : s.id]
+  server_ids  = [for s in local.all_nodes : s.id]
 }

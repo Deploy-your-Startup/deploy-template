@@ -11,16 +11,16 @@ variable "project_name" {
   type        = string
 }
 
-variable "node_count" {
-  description = "Number of cluster nodes to provision."
+variable "master_count" {
+  description = "Number of master nodes."
   type        = number
   default     = 1
 }
 
-variable "node_type" {
-  description = "Logical role label applied to nodes (e.g. master)."
-  type        = string
-  default     = "master"
+variable "worker_count" {
+  description = "Number of worker nodes."
+  type        = number
+  default     = 0
 }
 
 variable "location" {

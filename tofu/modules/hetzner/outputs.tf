@@ -14,18 +14,18 @@ output "network_id" {
 }
 
 output "server_ids" {
-  description = "IDs of the provisioned nodes."
-  value       = [for s in hcloud_server.nodes : s.id]
+  description = "IDs of all provisioned nodes (masters then workers)."
+  value       = [for s in local.all_nodes : s.id]
 }
 
 output "server_ipv4" {
-  description = "Public IPv4 addresses of the provisioned nodes."
-  value       = [for s in hcloud_server.nodes : s.ipv4_address]
+  description = "Public IPv4 addresses of all provisioned nodes."
+  value       = [for s in local.all_nodes : s.ipv4_address]
 }
 
 output "server_names" {
-  description = "Names of the provisioned nodes (match the dynamic inventory)."
-  value       = [for s in hcloud_server.nodes : s.name]
+  description = "Names of all provisioned nodes (match the dynamic inventory)."
+  value       = [for s in local.all_nodes : s.name]
 }
 
 output "managed_dns_zones" {
