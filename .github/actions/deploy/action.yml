@@ -19,7 +19,7 @@ runs:
       uses: astral-sh/setup-uv@v7
       with:
         working-directory: deployment
-        python-version: 3.12.7
+        python-version: 3.14
         enable-cache: true
         cache-dependency-glob: |
           pyproject.toml
@@ -29,7 +29,7 @@ runs:
       shell: "bash"
       working-directory: ./deployment
       run: |
-        uv sync --frozen --python 3.12.7
+        uv sync --frozen --python 3.14
 
     - name: "Expose deployment venv executables"
       shell: "bash"
