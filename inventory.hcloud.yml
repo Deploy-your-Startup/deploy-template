@@ -3,5 +3,5 @@ user: root
 status:
   - running
 keyed_groups:
-  - key: labels
+  - key: hcloud_labels
     prefix: hcloud
