@@ -2,6 +2,11 @@ plugin: hcloud
 user: root
 status:
   - running
+# Pin the hostvar naming so server labels are always exposed as
+# `hcloud_labels` (e.g. hcloud_type_master). The collection's default for
+# this option has flipped between "" and "hcloud_" across major versions;
+# setting it explicitly makes the inventory immune to that.
+hostvars_prefix: hcloud_
 keyed_groups:
   - key: hcloud_labels
     prefix: hcloud
