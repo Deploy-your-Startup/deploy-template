@@ -34,3 +34,74 @@
 - name: "Refresh inventory after adding machines"
   meta: refresh_inventory
   tags: infrastructure
+
+# -----------------------------------------------------------------------------
+# Scale down: anything beyond node_count goes away again.
+#
+# Servers are created as <project>-<type>-0..N-1, so the desired set is fully
+# determined by node_count. Whatever matches the naming scheme but is not in
+# that set is surplus — that is what makes `worker_count: 0` actually tear the
+# worker down instead of leaving it running and unmanaged.
+# -----------------------------------------------------------------------------
+- name: "List existing {{ node_type }} servers"
+  hetzner.hcloud.server_info:
+    label_selector: "type={{ node_type }}"
+  register: existing_nodes
+  tags: infrastructure
+
+- name: "Determine surplus nodes"
+  set_fact:
+    surplus_nodes: >-
+      {{ existing_nodes.hcloud_server_info
+         | map(attribute='name')
+         | select('match', '^' ~ project_name ~ '-' ~ node_type ~ '-[0-9]+$')
+         | reject('in', wanted_node_names)
+         | list }}
+  vars:
+    wanted_node_names: >-
+      {{ range(0, node_count | int)
+         | map('regex_replace', '^(.*)$', project_name ~ '-' ~ node_type ~ '-\1')
+         | list }}
+  tags: infrastructure
+
+- name: "Refuse to tear down control-plane nodes"
+  # Removing a master means removing an etcd member. That is a deliberate,
+  # quorum-sensitive operation, not something a lowered master_count should
+  # trigger as a side effect.
+  fail:
+    msg: |
+      master_count={{ node_count }} would remove: {{ surplus_nodes | join(', ') }}
+
+      Tearing down control-plane nodes is not automated — it removes etcd
+      members and can break quorum. Remove the member manually
+      (`k3s etcd-snapshot save`, then `kubectl delete node`, then delete the
+      server), or re-run with -e allow_master_teardown=true if you are sure.
+  when:
+    - node_type == 'master'
+    - surplus_nodes | length > 0
+    - not (allow_master_teardown | default(false) | bool)
+  tags: infrastructure
+
+- name: "Drain and remove surplus nodes from the cluster"
+  # Best effort: if the cluster is unreachable we still want the servers gone,
+  # otherwise a half-provisioned project could never be scaled back down.
+  shell: |
+    k3s kubectl drain {{ item }} --ignore-daemonsets --delete-emptydir-data --force --timeout=300s || true
+    k3s kubectl delete node {{ item }} --ignore-not-found=true
+  delegate_to: "{{ project_name }}-master-0"
+  loop: "{{ surplus_nodes }}"
+  when: (project_name ~ '-master-0') in hostvars
+  changed_when: true
+  tags: infrastructure
+
+- name: "Delete surplus servers"
+  hcloud_server:
+    name: "{{ item }}"
+    state: absent
+  loop: "{{ surplus_nodes }}"
+  tags: infrastructure
+
+- name: "Refresh inventory after removing machines"
+  meta: refresh_inventory
+  when: surplus_nodes | length > 0
+  tags: infrastructure

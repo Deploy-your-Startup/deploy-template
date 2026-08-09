@@ -1,0 +1,56 @@
+---
+# Upgrade k3s across a cluster, in the only order the version skew policy
+# allows: control plane first, workers after. Never rely on inventory ordering
+# for this — the hcloud inventory sorts by server name, so masters would only
+# come first by the accident of "m" < "w".
+#
+#   startup ansible k3s-upgrade --environment production
+#
+# One node at a time (serial: 1). Each node is drained, upgraded, waited on
+# until it reports Ready on the target version, and uncordoned before the next
+# one is touched. Draining is skipped on single-node clusters, where there is
+# nowhere to move pods to.
+#
+# The target version is roles/k3s/defaults/main.yml (k3s_version). Override per
+# run with -e k3s_version=vX.Y.Z+k3sN. k3s only supports one minor version step
+# at a time — go 1.35 -> 1.36 -> 1.37, never straight to 1.37.
+#
+# The host groups come from the hcloud inventory's keyed_groups on server
+# labels. A cluster with no workers simply has no hcloud_type_worker group and
+# that play is a no-op.
+
+- name: "Upgrade control plane"
+  hosts: hcloud_type_master
+  gather_facts: false
+  serial: 1
+  vars:
+    k3s_upgrade: true
+  tasks:
+    - import_role:
+        name: k3s
+      tags: k3s,k3s-upgrade
+
+- name: "Upgrade workers"
+  hosts: hcloud_type_worker
+  gather_facts: false
+  serial: 1
+  vars:
+    k3s_upgrade: true
+  tasks:
+    - import_role:
+        name: k3s
+      tags: k3s,k3s-upgrade
+
+- name: "Report cluster state"
+  hosts: hcloud_type_master
+  gather_facts: false
+  run_once: true
+  tasks:
+    - name: "Read node versions"
+      shell: k3s kubectl get nodes -o wide --no-headers
+      register: final_nodes
+      changed_when: false
+
+    - name: "Show node versions"
+      debug:
+        msg: "{{ final_nodes.stdout_lines }}"
