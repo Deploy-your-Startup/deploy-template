@@ -1,2 +1,15 @@
 ---
-k3s_version: "v1.35.2+k3s1"
+k3s_version: "v1.36.3+k3s1"
+
+# Upgrading an existing node is opt-in. A normal `infrastructure` run must never
+# restart k3s just because someone bumped k3s_version in a template sync, so the
+# role only reports the drift and leaves the node alone unless this is true.
+k3s_upgrade: false
+
+# Seconds to wait for a node to report Ready again after its k3s service was
+# restarted by an upgrade.
+k3s_upgrade_ready_timeout: 300
+
+# Skip the preflight that compares the composed exec args against the running
+# systemd unit. Only set this once you have checked the reported difference.
+k3s_force_exec: false
