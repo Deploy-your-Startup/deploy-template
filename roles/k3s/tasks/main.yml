@@ -51,6 +51,62 @@
     first_master_ip: "{{ first_master_ip_result.stdout if has_private_network else hostvars[first_master_host]['ansible_host'] }}"
 
 # -----------------------------------------------------------------------------
+# STEP 3b: Compose this node's k3s exec args, once.
+#
+# The install script rewrites the systemd unit from INSTALL_K3S_EXEC on every
+# run — it does not merge with what is already there. An upgrade that omits
+# these flags would silently drop --node-ip/--flannel-iface/--tls-san and
+# --node-label, so install and upgrade must pass byte-identical args. Hence one
+# definition, used by both.
+# -----------------------------------------------------------------------------
+- name: "Compose private network flags"
+  set_fact:
+    k3s_private_flags_server: "{{ ('--node-ip=' ~ node_private_ip ~ ' --flannel-iface=' ~ flannel_interface ~ ' --tls-san=' ~ node_private_ip) if has_private_network else '' }}"
+    k3s_private_flags_agent: "{{ ('--node-ip=' ~ node_private_ip ~ ' --flannel-iface=' ~ flannel_interface) if has_private_network else '' }}"
+
+- name: "Compose k3s exec args"
+  set_fact:
+    k3s_node_exec: >-
+      {%- if is_first_master -%}
+      server --cluster-init {{ k3s_private_flags_server }} --tls-san={{ ansible_host }} --node-label=type=master
+      {%- elif is_master -%}
+      server --server=https://{{ first_master_ip }}:6443 {{ k3s_private_flags_server }} --tls-san={{ ansible_host }} --node-label=type=master
+      {%- else -%}
+      agent {{ k3s_private_flags_agent }} --node-label=type=worker
+      {%- endif -%}
+    k3s_service_name: "{{ 'k3s' if is_master else 'k3s-agent' }}"
+
+# -----------------------------------------------------------------------------
+# STEP 3c: What is already installed here?
+#
+# Every install/join task below is gated on this. Without it the join tasks
+# re-run the installer on every play, silently upgrading a running node
+# whenever k3s_version changed — and taking it down mid-play to do so.
+# -----------------------------------------------------------------------------
+- name: "Read installed k3s version"
+  shell: k3s --version 2>/dev/null | awk '/^k3s version/ {print $3}'
+  register: installed_k3s_version
+  changed_when: false
+  failed_when: false
+
+- name: "Set version facts"
+  set_fact:
+    k3s_installed_version: "{{ installed_k3s_version.stdout | default('', true) | trim }}"
+    k3s_is_installed: "{{ (installed_k3s_version.stdout | default('', true) | trim) | length > 0 }}"
+
+- name: "Set upgrade fact"
+  set_fact:
+    k3s_needs_upgrade: "{{ k3s_is_installed and k3s_installed_version != k3s_version }}"
+
+- name: "Report pending upgrade"
+  debug:
+    msg: >-
+      {{ inventory_hostname }} runs {{ k3s_installed_version }}, target is
+      {{ k3s_version }}. Not touching it — run k3s-upgrade-playbook.yml
+      (or pass k3s_upgrade=true) to upgrade this node.
+  when: k3s_needs_upgrade and not (k3s_upgrade | bool)
+
+# -----------------------------------------------------------------------------
 # STEP 4: First master - preflight + cluster init
 # -----------------------------------------------------------------------------
 - name: "Check existing k3s data"
@@ -86,16 +142,10 @@
 
 - name: "Install first master (cluster-init)"
   shell: |
-    curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="{{ k3s_version }}" K3S_TOKEN="{{ k3s_token }}" INSTALL_K3S_EXEC="server \
-      --cluster-init \
-      {% if has_private_network %}--node-ip={{ node_private_ip }} \
-      --flannel-iface={{ flannel_interface }} \
-      --tls-san={{ node_private_ip }} \
-      {% endif %}--tls-san={{ ansible_host }} \
-      --node-label=type=master" sh -
+    curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="{{ k3s_version }}" K3S_TOKEN="{{ k3s_token }}" INSTALL_K3S_EXEC="{{ k3s_node_exec }}" sh -
   register: first_master_install
   changed_when: "'No change' not in first_master_install.stderr"
-  when: is_first_master and not existing_k3s_db.stat.exists
+  when: is_first_master and not k3s_is_installed and not existing_k3s_db.stat.exists
 
 - name: "Wait for first master API"
   block:
@@ -139,16 +189,10 @@
 
 - name: "Join master"
   shell: |
-    curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="{{ k3s_version }}" K3S_TOKEN="{{ k3s_token }}" INSTALL_K3S_EXEC="server \
-      --server=https://{{ first_master_ip }}:6443 \
-      {% if has_private_network %}--node-ip={{ node_private_ip }} \
-      --flannel-iface={{ flannel_interface }} \
-      --tls-san={{ node_private_ip }} \
-      {% endif %}--tls-san={{ ansible_host }} \
-      --node-label=type=master" sh -
+    curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="{{ k3s_version }}" K3S_TOKEN="{{ k3s_token }}" INSTALL_K3S_EXEC="{{ k3s_node_exec }}" sh -
   register: join_master_install
   changed_when: "'No change' not in join_master_install.stderr"
-  when: is_master and not is_first_master
+  when: is_master and not is_first_master and not k3s_is_installed
 
 # -----------------------------------------------------------------------------
 # STEP 6: Workers - join
@@ -162,10 +206,127 @@
 
 - name: "Join worker"
   shell: |
-    curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="{{ k3s_version }}" K3S_TOKEN="{{ k3s_token }}" K3S_URL="https://{{ first_master_ip }}:6443" INSTALL_K3S_EXEC="agent \
-      {% if has_private_network %}--node-ip={{ node_private_ip }} \
-      --flannel-iface={{ flannel_interface }} \
-      {% endif %}--node-label=type=worker" sh -
+    curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="{{ k3s_version }}" K3S_TOKEN="{{ k3s_token }}" K3S_URL="https://{{ first_master_ip }}:6443" INSTALL_K3S_EXEC="{{ k3s_node_exec }}" sh -
   register: join_worker_install
   changed_when: "'No change' not in join_worker_install.stderr"
-  when: is_worker
+  when: is_worker and not k3s_is_installed
+
+# -----------------------------------------------------------------------------
+# STEP 7: Upgrade an already-installed node
+#
+# Opt-in via k3s_upgrade. Ordering across nodes (control plane before workers)
+# is the playbook's job — see k3s-upgrade-playbook.yml.
+# -----------------------------------------------------------------------------
+- name: "Upgrade k3s"
+  when: k3s_needs_upgrade and (k3s_upgrade | bool)
+  block:
+    - name: "Read exec args from the running unit"
+      shell: |
+        systemctl cat {{ k3s_service_name }} \
+          | sed -n '/^ExecStart=/,/^$/p' \
+          | sed 's|^ExecStart=[^ ]*/k3s||' \
+          | tr -d "\\\\'" \
+          | tr '\n\t' '  ' \
+          | tr -s ' ' \
+          | sed 's/^ *//; s/ *$//'
+      register: current_exec
+      changed_when: false
+
+    - name: "Refuse to rewrite the unit with different flags"
+      # The installer regenerates the systemd unit from INSTALL_K3S_EXEC on
+      # every run, so an upgrade silently applies whatever the role composes.
+      # If that does not match what the node runs today, something drifted —
+      # stop rather than quietly drop --node-ip/--tls-san and break networking.
+      fail:
+        msg: |
+          Composed k3s exec args do not match the running unit on
+          {{ inventory_hostname }}. Upgrading would rewrite the systemd unit
+          and apply the difference.
+
+          running:  {{ current_exec.stdout }}
+          composed: {{ k3s_node_exec | regex_replace('\s+', ' ') | trim }}
+
+          Reconcile the role with the node, or re-run with
+          -e k3s_force_exec=true if the composed args are the correct ones.
+      when:
+        - current_exec.stdout != (k3s_node_exec | regex_replace('\s+', ' ') | trim)
+        - not (k3s_force_exec | default(false) | bool)
+
+    - name: "Take etcd snapshot before upgrading"
+      shell: k3s etcd-snapshot save --name pre-upgrade-{{ k3s_version | regex_replace('[^a-zA-Z0-9]', '-') }}
+      register: pre_upgrade_snapshot
+      when: is_master
+      changed_when: true
+
+    - name: "Count cluster nodes"
+      shell: k3s kubectl get nodes --no-headers | wc -l
+      delegate_to: "{{ first_master_host }}"
+      register: cluster_node_count
+      changed_when: false
+
+    - name: "Drain node"
+      # Pointless on a single-node cluster: there is nowhere to move the pods,
+      # and draining would just evict everything for the duration of a restart
+      # that the pods would otherwise survive.
+      shell: >-
+        k3s kubectl drain {{ inventory_hostname }}
+        --ignore-daemonsets --delete-emptydir-data --force --timeout=300s
+      delegate_to: "{{ first_master_host }}"
+      when: cluster_node_count.stdout | int > 1
+      changed_when: true
+
+    - name: "Run installer with target version"
+      shell: |
+        curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="{{ k3s_version }}" K3S_TOKEN="{{ k3s_token }}" {% if is_worker %}K3S_URL="https://{{ first_master_ip }}:6443" {% endif %}INSTALL_K3S_EXEC="{{ k3s_node_exec }}" sh -
+      register: k3s_upgrade_install
+      changed_when: true
+
+    - name: "Wait for the API to come back"
+      # Masters only. On a worker this port belongs to the master and says
+      # nothing about the agent — there the Ready check below is the real
+      # signal.
+      wait_for:
+        host: "127.0.0.1"
+        port: 6443
+        timeout: "{{ k3s_upgrade_ready_timeout }}"
+      when: is_master
+
+    - name: "Wait for node to report Ready on the new version"
+      shell: >-
+        k3s kubectl get node {{ inventory_hostname }}
+        -o jsonpath='{.status.nodeInfo.kubeletVersion}{" "}{range .status.conditions[?(@.type=="Ready")]}{.status}{end}'
+      delegate_to: "{{ first_master_host }}"
+      register: node_ready_check
+      until: node_ready_check.stdout == k3s_version ~ " True"
+      retries: "{{ (k3s_upgrade_ready_timeout | int / 10) | int }}"
+      delay: 10
+      changed_when: false
+
+    - name: "Uncordon node"
+      shell: k3s kubectl uncordon {{ inventory_hostname }}
+      delegate_to: "{{ first_master_host }}"
+      when: cluster_node_count.stdout | int > 1
+      changed_when: true
+
+    - name: "Report upgrade"
+      debug:
+        msg: "{{ inventory_hostname }}: {{ k3s_installed_version }} -> {{ k3s_version }}"
+
+  rescue:
+    - name: "Show k3s logs after failed upgrade"
+      shell: journalctl -u {{ k3s_service_name }} --no-pager -n 120 || true
+      register: upgrade_failure_logs
+      changed_when: false
+
+    - name: "Fail with upgrade diagnostics"
+      fail:
+        msg: |
+          Upgrading {{ inventory_hostname }} from {{ k3s_installed_version }}
+          to {{ k3s_version }} failed. The node may be cordoned.
+
+          {% if is_master %}An etcd snapshot was taken before the upgrade; list
+          it with `k3s etcd-snapshot ls` and restore with
+          `k3s server --cluster-reset --cluster-reset-restore-path=<snapshot>`.
+          {% endif %}
+          recent {{ k3s_service_name }} logs:
+          {{ upgrade_failure_logs.stdout }}
