@@ -26,6 +26,13 @@
     server_type: "{{ node_server_type }}"
     ssh_keys: "{{ ssh_public_keys | map(attribute='name') | list }}"
     image: ubuntu-24.04
+    # Attach at creation, not afterwards. A server attached to a network only
+    # after it has booted does not get the interface configured until it is
+    # rebooted — k3s then finds no 10.x address and silently joins on the
+    # public IP. Creating it attached means the interface exists from first
+    # boot. For servers that already exist this is a diff, so an unchanged
+    # network list is a no-op.
+    private_networks: ["{{ network_name }}"]
     state: present
   loop: "{{ range(0, node_count) | list }}"  # Startet bei 0!
   register: created_servers
