@@ -7,6 +7,14 @@
   tags: infrastructure
   loop: "{{ ssh_public_keys }}"
 
+- name: "Resolve server type for this node type"
+  # `<node_type>_server_type` wins over the generic `server_type`, so masters
+  # and workers can differ in size or architecture. The role is imported once
+  # per node type, so this resolves separately for each pass.
+  set_fact:
+    node_server_type: "{{ lookup('vars', node_type ~ '_server_type', default=server_type) }}"
+  tags: infrastructure
+
 - name: "Create Hetzner Server"
   hcloud_server:
     location: "{{ location }}"
@@ -15,7 +23,7 @@
       type: "{{ node_type }}"
       ingress: "true"
     name: "{{ project_name }}-{{ node_type }}-{{ item }}"
-    server_type: "{{ server_type }}"
+    server_type: "{{ node_server_type }}"
     ssh_keys: "{{ ssh_public_keys | map(attribute='name') | list }}"
     image: ubuntu-24.04
     state: present
