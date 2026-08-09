@@ -37,6 +37,36 @@
     msg: "{{ inventory_hostname }} | private_ip: {{ node_private_ip | default('none', true) }} | api_ip: {{ first_master_ip | default(ansible_host, true) }} | first_master: {{ is_first_master }} | master: {{ is_master }} | worker: {{ is_worker }}"
 
 # -----------------------------------------------------------------------------
+# STEP 2b: Refuse to join a private-network cluster over the public IP
+#
+# Falling back to the public address is correct for a cluster that has no
+# private network at all, but silently wrong when the rest of the cluster is on
+# 10.x — the node joins and reports Ready while its traffic takes a different
+# path. That failure is invisible until you compare INTERNAL-IPs, so catch it
+# here.
+# -----------------------------------------------------------------------------
+- name: "Check whether the first master uses a private network"
+  shell: ip -o addr show | grep -v -E 'flannel|cni|veth|docker' | grep -cE "inet 10\.[0-9]+\.[0-9]+\.[0-9]+"
+  register: first_master_private
+  delegate_to: "{{ first_master_host }}"
+  changed_when: false
+  failed_when: false
+
+- name: "Fail on inconsistent private networking"
+  fail:
+    msg: |
+      {{ inventory_hostname }} has no private network address, but
+      {{ first_master_host }} does. Joining now would place this node on its
+      public IP while the rest of the cluster talks over 10.x.
+
+      Usually the server was attached to the network after it had already
+      booted, so the interface was never configured. Reboot the node, or
+      recreate it so it is attached at creation time.
+  when:
+    - not has_private_network
+    - (first_master_private.stdout | default('0') | trim | int) > 0
+
+# -----------------------------------------------------------------------------
 # STEP 3: Get first master IP
 # -----------------------------------------------------------------------------
 - name: "Get first master private IP"
