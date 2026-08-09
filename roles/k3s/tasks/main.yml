@@ -252,6 +252,27 @@
         - current_exec.stdout != (k3s_node_exec | regex_replace('\s+', ' ') | trim)
         - not (k3s_force_exec | default(false) | bool)
 
+    - name: "Read the token the node already runs with"
+      # Not from group_vars: a shared playbook lives in .shared-roles/, where
+      # Ansible finds no group_vars at all, so k3s_token is simply undefined
+      # there. The node's own token is the correct source anyway — it is what
+      # the running service uses.
+      shell: |
+        sed -n 's/^K3S_TOKEN=//p' /etc/systemd/system/{{ k3s_service_name }}.service.env \
+          | sed "s/^'//; s/'$//"
+      register: node_k3s_token
+      changed_when: false
+      no_log: true
+
+    - name: "Fail if no token could be read"
+      fail:
+        msg: >-
+          Could not read K3S_TOKEN from
+          /etc/systemd/system/{{ k3s_service_name }}.service.env on
+          {{ inventory_hostname }}. Re-running the installer without it would
+          rewrite that file and strip the node's token.
+      when: node_k3s_token.stdout | length == 0
+
     - name: "Take etcd snapshot before upgrading"
       shell: k3s etcd-snapshot save --name pre-upgrade-{{ k3s_version | regex_replace('[^a-zA-Z0-9]', '-') }}
       register: pre_upgrade_snapshot
@@ -276,8 +297,12 @@
       changed_when: true
 
     - name: "Run installer with target version"
+      # The token goes through `environment`, not the command line, so it
+      # cannot surface in a failure message or a verbose task dump.
       shell: |
-        curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="{{ k3s_version }}" K3S_TOKEN="{{ k3s_token }}" {% if is_worker %}K3S_URL="https://{{ first_master_ip }}:6443" {% endif %}INSTALL_K3S_EXEC="{{ k3s_node_exec }}" sh -
+        curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="{{ k3s_version }}" {% if is_worker %}K3S_URL="https://{{ first_master_ip }}:6443" {% endif %}INSTALL_K3S_EXEC="{{ k3s_node_exec }}" sh -
+      environment:
+        K3S_TOKEN: "{{ node_k3s_token.stdout }}"
       register: k3s_upgrade_install
       changed_when: true
 
