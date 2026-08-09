@@ -314,19 +314,30 @@
 
   rescue:
     - name: "Show k3s logs after failed upgrade"
-      shell: journalctl -u {{ k3s_service_name }} --no-pager -n 120 || true
+      shell: journalctl -u {{ k3s_service_name }} --no-pager -n 30 || true
       register: upgrade_failure_logs
       changed_when: false
 
     - name: "Fail with upgrade diagnostics"
+      # Lead with the original failure. A rescue block replaces the real error
+      # with whatever it reports, so anything not repeated here is lost — and a
+      # wall of journal output is no substitute for the message that actually
+      # says what went wrong.
       fail:
         msg: |
           Upgrading {{ inventory_hostname }} from {{ k3s_installed_version }}
-          to {{ k3s_version }} failed. The node may be cordoned.
+          to {{ k3s_version }} failed at: {{ ansible_failed_task.name }}
 
-          {% if is_master %}An etcd snapshot was taken before the upgrade; list
-          it with `k3s etcd-snapshot ls` and restore with
+          error:  {{ ansible_failed_result.msg | default('(none)') }}
+          stdout: {{ ansible_failed_result.stdout | default('(none)') }}
+          stderr: {{ ansible_failed_result.stderr | default('(none)') }}
+
+          The node may be cordoned; check with
+          `kubectl get node {{ inventory_hostname }}`.
+          {% if is_master %}
+          An etcd snapshot was taken before the upgrade; list it with
+          `k3s etcd-snapshot ls` and restore with
           `k3s server --cluster-reset --cluster-reset-restore-path=<snapshot>`.
           {% endif %}
-          recent {{ k3s_service_name }} logs:
+          last {{ k3s_service_name }} log lines:
           {{ upgrade_failure_logs.stdout }}
