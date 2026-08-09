@@ -93,10 +93,16 @@
 - name: "Drain and remove surplus nodes from the cluster"
   # Best effort: if the cluster is unreachable we still want the servers gone,
   # otherwise a half-provisioned project could never be scaled back down.
+  #
+  # connection: ssh is not redundant. This role runs in the provisioning play,
+  # which is `connection: local`, and a play-level connection wins over
+  # delegate_to — without this the kubectl calls run on the operator's machine
+  # and fail with "k3s: command not found".
   shell: |
     k3s kubectl drain {{ item }} --ignore-daemonsets --delete-emptydir-data --force --timeout=300s || true
     k3s kubectl delete node {{ item }} --ignore-not-found=true
   delegate_to: "{{ project_name }}-master-0"
+  connection: ssh
   loop: "{{ surplus_nodes }}"
   when: (project_name ~ '-master-0') in hostvars
   changed_when: true
@@ -110,6 +116,8 @@
   tags: infrastructure
 
 - name: "Refresh inventory after removing machines"
+  # No `when:` — meta tasks silently ignore conditionals (Ansible only warns),
+  # so guarding this would be a lie. Refreshing unconditionally is correct
+  # anyway; it is what the create path above already does.
   meta: refresh_inventory
-  when: surplus_nodes | length > 0
   tags: infrastructure
