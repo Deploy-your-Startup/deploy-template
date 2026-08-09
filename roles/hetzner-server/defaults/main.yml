@@ -1,4 +1,17 @@
+---
+# Fallback server type, used for any node type without its own setting.
 server_type: cx23
+
+# Per-node-type overrides. Set these in a project's group_vars when masters and
+# workers should differ — a small worker next to a bigger control plane, or an
+# arm64 fleet where the fallback above does not apply:
+#
+#   master_server_type: cax11
+#   worker_server_type: cax21
+#
+# The role resolves `<node_type>_server_type` and falls back to `server_type`.
+# Nothing is set here so existing projects keep their current behaviour.
+
 node_type: master
 node_count: 1
 location: fsn1
