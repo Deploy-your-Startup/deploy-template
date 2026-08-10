@@ -21,6 +21,12 @@ location: fsn1
 #
 #   hetzner_os_image: ubuntu-26.04
 #
+# Per-node-type overrides work the same way `<node_type>_server_type` does, and
+# are how you bring up a single node on a different release without changing
+# what the rest of the fleet is declared to be:
+#
+#   worker_os_image: ubuntu-22.04
+#
 # This only takes effect at creation. Hetzner's server API takes the image when
 # the server is built, so bumping this does NOT upgrade any existing node — it
 # stays on whatever it was created with, and the two drift apart silently. An
