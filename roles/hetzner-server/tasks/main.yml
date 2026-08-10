@@ -7,6 +7,16 @@
   tags: infrastructure
   loop: "{{ ssh_public_keys }}"
 
+- name: "Resolve OS image for this node type"
+  # Same shape as the server type below: `<node_type>_os_image` wins over the
+  # generic `hetzner_os_image`. Without it, moving a fleet to a new Ubuntu means
+  # changing the value every node type sees at once — including the running
+  # control plane, which has no business seeing a changed image just because a
+  # new worker should come up on a different one.
+  set_fact:
+    node_os_image: "{{ lookup('vars', node_type ~ '_os_image', default=hetzner_os_image) }}"
+  tags: infrastructure
+
 - name: "Resolve server type for this node type"
   # `<node_type>_server_type` wins over the generic `server_type`, so masters
   # and workers can differ in size or architecture. The role is imported once
@@ -79,7 +89,7 @@
     name: "{{ project_name }}-{{ node_type }}-{{ item }}"
     server_type: "{{ node_server_type }}"
     ssh_keys: "{{ ssh_public_keys | map(attribute='name') | list }}"
-    image: "{{ hetzner_os_image }}"
+    image: "{{ node_os_image }}"
     # Attach at creation, not afterwards. A server attached to a network only
     # after it has booted does not get the interface configured until it is
     # rebooted — k3s then finds no 10.x address and silently joins on the
