@@ -79,7 +79,7 @@
     name: "{{ project_name }}-{{ node_type }}-{{ item }}"
     server_type: "{{ node_server_type }}"
     ssh_keys: "{{ ssh_public_keys | map(attribute='name') | list }}"
-    image: ubuntu-24.04
+    image: "{{ hetzner_os_image }}"
     # Attach at creation, not afterwards. A server attached to a network only
     # after it has booted does not get the interface configured until it is
     # rebooted — k3s then finds no 10.x address and silently joins on the
