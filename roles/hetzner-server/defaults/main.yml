@@ -16,6 +16,18 @@ node_type: master
 node_count: 1
 location: fsn1
 
+# OS image for newly created servers. Override in a project's group_vars to put
+# new nodes on a different Ubuntu than the fleet default:
+#
+#   hetzner_os_image: ubuntu-26.04
+#
+# This only takes effect at creation. Hetzner's server API takes the image when
+# the server is built, so bumping this does NOT upgrade any existing node — it
+# stays on whatever it was created with, and the two drift apart silently. An
+# in-place release upgrade is a separate operation; this value only decides what
+# the *next* server comes up with.
+hetzner_os_image: ubuntu-24.04
+
 # Escape hatches, both off by default. Each guards an operation that is fine
 # when you mean it and destructive when it happens as a side effect of a
 # routine `infrastructure` run:
