@@ -1,0 +1,187 @@
+---
+# -----------------------------------------------------------------------------
+# Ubuntu release upgrade for a cluster node.
+#
+# This is the one operation in this repo with no rollback. `update-vms` moves
+# within a release and can be repeated; do-release-upgrade replaces kernel,
+# libc and systemd under a running containerd and cannot be undone except by
+# restoring a snapshot. Everything below is arranged around that: refuse when
+# the situation is unsafe, snapshot first, and leave a diagnosable trail.
+# -----------------------------------------------------------------------------
+
+- name: "Skip unless this run is an OS upgrade"
+  meta: end_host
+  when: not (os_upgrade | default(false) | bool)
+
+- name: "Set node role"
+  # Same derivation the k3s role uses, so both agree on which host is the one
+  # that can talk to the cluster.
+  set_fact:
+    is_master: "{{ 'master' in inventory_hostname }}"
+    first_master_host: "{{ inventory_hostname | regex_replace('(master|worker)-[0-9]+$', 'master-0') }}"
+
+- name: "Read current OS release"
+  shell: . /etc/os-release && echo "$VERSION_ID"
+  register: current_release
+  changed_when: false
+
+- name: "Check whether a new release is offered"
+  # Exit 0 means an upgrade is available, 1 means there is none. Ubuntu only
+  # offers LTS -> LTS once the first point release of the new version is out,
+  # so "nothing to do" here is a normal, expected answer and not a failure.
+  command: do-release-upgrade -c
+  register: release_check
+  changed_when: false
+  failed_when: false
+
+- name: "Report and stop when the node is already current"
+  debug:
+    msg: >-
+      {{ inventory_hostname }} is on {{ current_release.stdout }} and Ubuntu
+      offers no newer release yet. Nothing to do.
+  when: release_check.rc != 0
+
+- name: "Stop when there is nothing to upgrade"
+  meta: end_host
+  when: release_check.rc != 0
+
+- name: "Count cluster nodes"
+  shell: k3s kubectl get nodes --no-headers | wc -l
+  delegate_to: "{{ first_master_host }}"
+  register: cluster_node_count
+  changed_when: false
+
+- name: "Refuse to upgrade a single-node cluster unless allowed"
+  fail:
+    msg: |
+      {{ inventory_hostname }} is the only node in this cluster. A release
+      upgrade takes the whole cluster down for the duration and cannot be
+      rolled back — there is no second node to drain to and no way back except
+      restoring a snapshot.
+
+      Take a snapshot of the server first, then re-run in a maintenance window
+      with:
+
+        startup ansible os-upgrade --environment <env> --allow-single-node
+  when:
+    - cluster_node_count.stdout | int <= 1
+    - not (os_upgrade_allow_single_node | default(false) | bool)
+
+- block:
+    - name: "Refresh apt and complete pending updates"
+      # do-release-upgrade refuses to start on a system with pending updates or
+      # a half-configured dpkg state, so get that out of the way first.
+      apt:
+        update_cache: true
+        upgrade: dist
+        autoremove: true
+
+    - name: "Ensure the release upgrader is installed"
+      apt:
+        name: ubuntu-release-upgrader-core
+        state: present
+
+    - name: "Take etcd snapshot before upgrading"
+      shell: >-
+        k3s etcd-snapshot save
+        --name pre-os-upgrade-{{ current_release.stdout | regex_replace('[^a-zA-Z0-9]', '-') }}
+      when: is_master
+      changed_when: true
+
+    - name: "Drain node"
+      # Pointless on a single-node cluster — there is nowhere to move the pods.
+      # Reaching this task at all on such a cluster means the operator passed
+      # --allow-single-node and accepted the downtime.
+      shell: >-
+        k3s kubectl drain {{ inventory_hostname }}
+        --ignore-daemonsets --delete-emptydir-data --force --timeout=300s
+      delegate_to: "{{ first_master_host }}"
+      when: cluster_node_count.stdout | int > 1
+      changed_when: true
+
+    - name: "Run the release upgrade"
+      # async, not a plain shell task: the upgrader restarts sshd partway
+      # through and would drop the connection Ansible is holding. Running it
+      # detached on the node means a lost connection costs a poll, not the
+      # upgrade.
+      #
+      # DistUpgradeViewNonInteractive keeps existing config files on conflict
+      # rather than stopping to ask, which is what we want for a fleet whose
+      # config is managed by this repo anyway.
+      command: do-release-upgrade -f DistUpgradeViewNonInteractive
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      async: "{{ os_upgrade_timeout }}"
+      poll: 15
+      register: release_upgrade
+      changed_when: true
+
+    - name: "Reboot into the new release"
+      reboot:
+        msg: Reboot triggered by startup ansible os-upgrade
+        reboot_timeout: "{{ os_upgrade_reboot_timeout }}"
+        connect_timeout: 5
+
+    - name: "Read the release after the upgrade"
+      shell: . /etc/os-release && echo "$VERSION_ID"
+      register: new_release
+      changed_when: false
+
+    - name: "Fail if the release did not actually change"
+      # A do-release-upgrade that exits 0 without moving the version means it
+      # bailed out early. Better to stop the play here than to carry on to the
+      # next node on a false success.
+      fail:
+        msg: >-
+          {{ inventory_hostname }} still reports {{ new_release.stdout }} after
+          the upgrade. See /var/log/dist-upgrade/main.log on the node.
+      when: new_release.stdout == current_release.stdout
+
+    - name: "Wait for node to report Ready again"
+      shell: >-
+        k3s kubectl get node {{ inventory_hostname }}
+        -o jsonpath='{range .status.conditions[?(@.type=="Ready")]}{.status}{end}'
+      delegate_to: "{{ first_master_host }}"
+      register: node_ready_check
+      until: node_ready_check.stdout == "True"
+      retries: "{{ (os_upgrade_ready_timeout | int / 10) | int }}"
+      delay: 10
+      changed_when: false
+
+    - name: "Uncordon node"
+      shell: k3s kubectl uncordon {{ inventory_hostname }}
+      delegate_to: "{{ first_master_host }}"
+      when: cluster_node_count.stdout | int > 1
+      changed_when: true
+
+    - name: "Report upgrade"
+      debug:
+        msg: "{{ inventory_hostname }}: {{ current_release.stdout }} -> {{ new_release.stdout }}"
+
+  rescue:
+    - name: "Collect upgrade diagnostics"
+      shell: tail -n 40 /var/log/dist-upgrade/main.log 2>/dev/null || true
+      register: upgrade_failure_log
+      changed_when: false
+      failed_when: false
+
+    - name: "Fail with upgrade diagnostics"
+      # Lead with the original failure — a rescue block replaces the real error
+      # with whatever it reports, so anything not repeated here is lost.
+      fail:
+        msg: |
+          Upgrading {{ inventory_hostname }} from {{ current_release.stdout }}
+          failed at: {{ ansible_failed_task.name }}
+
+          error:  {{ ansible_failed_result.msg | default('(none)') }}
+          stdout: {{ ansible_failed_result.stdout | default('(none)') }}
+          stderr: {{ ansible_failed_result.stderr | default('(none)') }}
+
+          The node may still be cordoned, and a partially upgraded node is not
+          safe to leave in the cluster. Check it before running anything else:
+
+            k3s kubectl get nodes
+            k3s kubectl uncordon {{ inventory_hostname }}
+
+          Last lines of /var/log/dist-upgrade/main.log:
+          {{ upgrade_failure_log.stdout | default('(no log)') }}

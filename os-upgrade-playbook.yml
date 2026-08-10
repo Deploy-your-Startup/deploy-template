@@ -1,0 +1,64 @@
+---
+# Upgrade the Ubuntu release across a cluster, one node at a time.
+#
+#   startup ansible os-upgrade --environment production
+#
+# Workers first, control plane last — the opposite of k3s-upgrade. There is no
+# version skew policy forcing an order here, so the useful order is the one
+# that lets a worker prove the upgrade before the control plane is touched. A
+# broken worker is a drained node; a broken master is a dead cluster.
+#
+# serial: 1 throughout. Each node is drained, upgraded, rebooted, waited on
+# until it reports Ready again, and uncordoned before the next one is touched.
+# Draining is skipped on single-node clusters, where there is nowhere to move
+# pods to — and where the role refuses to run at all unless the operator passed
+# --allow-single-node.
+#
+# This is the only operation in this repo that cannot be rolled back. Snapshot
+# the servers first. See roles/os-upgrade/defaults/main.yml for the knobs.
+#
+# The target release is whatever Ubuntu offers the node (do-release-upgrade -c);
+# it is not pinned here. A node that is already current is reported and skipped,
+# so running this against an up-to-date fleet is a no-op.
+#
+# Host groups come from the hcloud inventory's keyed_groups on server labels. A
+# cluster with no workers simply has no hcloud_type_worker group and that play
+# is a no-op.
+
+- name: "Upgrade workers"
+  hosts: hcloud_type_worker
+  gather_facts: false
+  become: true
+  serial: 1
+  vars:
+    os_upgrade: true
+  tasks:
+    - import_role:
+        name: os-upgrade
+      tags: os-upgrade
+
+- name: "Upgrade control plane"
+  hosts: hcloud_type_master
+  gather_facts: false
+  become: true
+  serial: 1
+  vars:
+    os_upgrade: true
+  tasks:
+    - import_role:
+        name: os-upgrade
+      tags: os-upgrade
+
+- name: "Report cluster state"
+  hosts: hcloud_type_master
+  gather_facts: false
+  run_once: true
+  tasks:
+    - name: "Read node versions"
+      shell: k3s kubectl get nodes -o wide --no-headers
+      register: final_nodes
+      changed_when: false
+
+    - name: "Show node versions"
+      debug:
+        msg: "{{ final_nodes.stdout_lines }}"
