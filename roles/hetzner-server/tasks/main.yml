@@ -15,6 +15,60 @@
     node_server_type: "{{ lookup('vars', node_type ~ '_server_type', default=server_type) }}"
   tags: infrastructure
 
+# -----------------------------------------------------------------------------
+# Preflight: never resize a running server as a side effect.
+#
+# The create task below runs with `force: true`, which is what lets the module
+# apply a server_type change — by stopping the machine, resizing it, and
+# starting it again. When the change is rejected (a different architecture, or
+# a type the disk cannot shrink into) the server stays off. A group_vars value
+# that no longer matches reality therefore takes production down, and does it
+# during a routine `infrastructure` run.
+#
+# Checking first turns that from a mistake you have to remember not to make
+# into one the play refuses to carry out.
+# -----------------------------------------------------------------------------
+- name: "List existing {{ node_type }} servers before creating"
+  hetzner.hcloud.server_info:
+    label_selector: "type={{ node_type }}"
+  register: preflight_nodes
+  tags: infrastructure
+
+- name: "Refuse to change the type of a running {{ node_type }}"
+  fail:
+    msg: |
+      {{ mismatched_nodes | map(attribute='name') | join(', ') }} would be
+      changed to {{ node_server_type }}:
+
+      {% for node in mismatched_nodes %}
+        {{ node.name }}: {{ node.server_type }} -> {{ node_server_type }}
+      {% endfor %}
+
+      The create task runs with force: true, so this run would stop the
+      server to resize it — and leave it stopped if Hetzner rejects the
+      change (a different architecture, or a disk that cannot shrink).
+
+      Either correct {{ node_type }}_server_type / server_type to what the
+      server actually is, or — if the resize is what you want — stop the
+      server first and re-run, or pass -e allow_server_resize=true.
+  vars:
+    wanted_node_names: >-
+      {{ range(0, node_count | int)
+         | map('regex_replace', '^(.*)$', project_name ~ '-' ~ node_type ~ '-\1')
+         | list }}
+    # Only nodes this run would actually touch. Anything outside node_count is
+    # surplus and gets deleted further down, so its type is irrelevant.
+    mismatched_nodes: >-
+      {{ preflight_nodes.hcloud_server_info
+         | selectattr('name', 'in', wanted_node_names)
+         | selectattr('status', 'equalto', 'running')
+         | rejectattr('server_type', 'equalto', node_server_type)
+         | list }}
+  when:
+    - mismatched_nodes | length > 0
+    - not (allow_server_resize | default(false) | bool)
+  tags: infrastructure
+
 - name: "Create Hetzner Server"
   hcloud_server:
     location: "{{ location }}"

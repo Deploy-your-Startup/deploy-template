@@ -15,3 +15,16 @@ server_type: cx23
 node_type: master
 node_count: 1
 location: fsn1
+
+# Escape hatches, both off by default. Each guards an operation that is fine
+# when you mean it and destructive when it happens as a side effect of a
+# routine `infrastructure` run:
+#
+#   allow_master_teardown: lowering master_count deletes control-plane nodes
+#   allow_server_resize:   changing *_server_type stops a running server to
+#                          resize it, and leaves it stopped if Hetzner rejects
+#                          the change
+#
+# Pass them per run (`-e allow_server_resize=true`), not in group_vars.
+allow_master_teardown: false
+allow_server_resize: false
