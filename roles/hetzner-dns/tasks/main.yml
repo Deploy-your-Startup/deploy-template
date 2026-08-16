@@ -28,29 +28,32 @@
     apex_domains: "{{ domains | select('match', '^[^.]+\\.[^.]+$') | list }}"
   tags: infrastructure
 
-- name: "Look up where each zone is actually delegated"
-  # Creating a zone in the project proves nothing about who answers for the
-  # domain: `zone_info` then reports it as "owned", which is why the warning
-  # at the bottom could never fire. A domain hosted at another provider used
-  # to get its records written into a Hetzner zone nobody ever queries — the
-  # run went green and the site stayed dark.
-  command: "dig +short NS {{ item }}"
-  register: zone_ns
-  changed_when: false
-  failed_when: false
-  loop: "{{ dns_zones }}"
+- name: "Look at the zones this project already holds"
+  # Hetzner checks each zone's delegation itself and reports the result, which
+  # is what tells us whether a zone is actually in use. Merely holding a zone
+  # proves nothing: the previous version asked the project which zones it
+  # contains — right after creating them — so every zone counted as "ours", the
+  # "not owned by this project" warning could never fire, and a domain hosted
+  # elsewhere had its records written into a zone nobody ever queries. The run
+  # went green and the site stayed dark.
+  hetzner.hcloud.zone_info:
+  register: existing_zones_info
   tags: infrastructure
 
-- name: "Separate externally hosted zones from Hetzner-delegated ones"
-  # An empty answer means the lookup itself failed (no dig, no network). That
-  # is not evidence of external hosting, so those zones keep the old
-  # behaviour rather than silently losing their DNS management.
+- name: "Separate externally delegated zones from the rest"
+  # Only a definite "invalid" counts as external. A zone created moments ago
+  # has not been checked yet and reports no verdict, and treating that as
+  # external would break the normal case: a correctly delegated domain would
+  # lose its DNS records on the very run that sets it up.
   set_fact:
     external_zones: >-
-      {{ zone_ns.results
-         | selectattr('stdout', 'truthy')
-         | rejectattr('stdout', 'search', 'ns\.hetzner\.')
-         | map(attribute='item') | list }}
+      {{ existing_zones_info.hcloud_zone_info
+         | selectattr('authoritative_nameservers.delegation_status',
+                      'defined')
+         | selectattr('authoritative_nameservers.delegation_status',
+                      'equalto', 'invalid')
+         | map(attribute='name') | list
+         | intersect(dns_zones) }}
   tags: infrastructure
 
 - name: "Set the zones this role may manage"
@@ -95,8 +98,10 @@
   debug:
     msg: >-
       DNS for '{{ item }}' is delegated to
-      {{ zone_ns.results | selectattr('item', 'equalto', item)
-         | map(attribute='stdout_lines') | first | default(['?']) | join(' ') }}
+      {{ existing_zones_info.hcloud_zone_info
+         | selectattr('name', 'equalto', item)
+         | map(attribute='authoritative_nameservers.delegated')
+         | first | default(['?']) | join(' ') }}
       — not to Hetzner, so nothing was changed there. Point these hosts at
       {{ loadbalancer_ip }} with an A record at that provider, otherwise the
       site stays unreachable:
