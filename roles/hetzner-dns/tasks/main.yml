@@ -28,12 +28,42 @@
     apex_domains: "{{ domains | select('match', '^[^.]+\\.[^.]+$') | list }}"
   tags: infrastructure
 
+- name: "Look up where each zone is actually delegated"
+  # Creating a zone in the project proves nothing about who answers for the
+  # domain: `zone_info` then reports it as "owned", which is why the warning
+  # at the bottom could never fire. A domain hosted at another provider used
+  # to get its records written into a Hetzner zone nobody ever queries — the
+  # run went green and the site stayed dark.
+  command: "dig +short NS {{ item }}"
+  register: zone_ns
+  changed_when: false
+  failed_when: false
+  loop: "{{ dns_zones }}"
+  tags: infrastructure
+
+- name: "Separate externally hosted zones from Hetzner-delegated ones"
+  # An empty answer means the lookup itself failed (no dig, no network). That
+  # is not evidence of external hosting, so those zones keep the old
+  # behaviour rather than silently losing their DNS management.
+  set_fact:
+    external_zones: >-
+      {{ zone_ns.results
+         | selectattr('stdout', 'truthy')
+         | rejectattr('stdout', 'search', 'ns\.hetzner\.')
+         | map(attribute='item') | list }}
+  tags: infrastructure
+
+- name: "Set the zones this role may manage"
+  set_fact:
+    managed_zones: "{{ dns_zones | difference(external_zones) }}"
+  tags: infrastructure
+
 - name: "Create DNS zones in Hetzner"
   hetzner.hcloud.zone:
     name: "{{ item }}"
     mode: primary
     state: present
-  loop: "{{ dns_zones }}"
+  loop: "{{ managed_zones }}"
   register: zone_results
   failed_when:
     - zone_results is failed
@@ -46,13 +76,32 @@
   tags: infrastructure
 
 - name: "Set owned zones list"
+  # Intersected with managed_zones on purpose: an earlier run may have left a
+  # zone for an externally hosted domain behind, and writing records into it
+  # would be just as invisible as before.
   set_fact:
-    owned_zones: "{{ owned_zones_info.hcloud_zone_info | map(attribute='name') | list }}"
+    owned_zones: >-
+      {{ owned_zones_info.hcloud_zone_info
+         | map(attribute='name') | list
+         | intersect(managed_zones) }}
   tags: infrastructure
 
 - name: "Show owned zones"
   debug:
     msg: "Owned zones: {{ owned_zones }} (requested: {{ dns_zones }})"
+  tags: infrastructure
+
+- name: "Report domains whose DNS must be set at another provider"
+  debug:
+    msg: >-
+      DNS for '{{ item }}' is delegated to
+      {{ zone_ns.results | selectattr('item', 'equalto', item)
+         | map(attribute='stdout_lines') | first | default(['?']) | join(' ') }}
+      — not to Hetzner, so nothing was changed there. Point these hosts at
+      {{ loadbalancer_ip }} with an A record at that provider, otherwise the
+      site stays unreachable:
+      {{ domains | select('search', '(^|\.)' ~ (item | regex_escape) ~ '$') | list | join(', ') }}
+  loop: "{{ external_zones }}"
   tags: infrastructure
 
 - name: "Add DNS @ record — only for owned apex domains"
