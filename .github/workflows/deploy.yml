@@ -19,9 +19,17 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Lets the wait step below see in-progress infrastructure runs.
+      actions: read
     steps:
       - name: "Checkout repository"
         uses: actions/checkout@v7
+
+      - name: "Wait for infrastructure"
+        if: github.event_name != 'pull_request'
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/wait-for-infrastructure@main
 
       - name: "Deploy!!"
         if: github.event_name != 'pull_request'

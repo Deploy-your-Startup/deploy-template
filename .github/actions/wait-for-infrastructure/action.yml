@@ -1,0 +1,50 @@
+name: "Wait for infrastructure"
+description: >-
+  Block while an infrastructure run for the same ref is still provisioning, so
+  a deploy never overtakes the servers it is supposed to deploy to.
+inputs:
+  timeout_minutes:
+    description: "Give up waiting after this many minutes and continue anyway"
+    required: false
+    default: "30"
+  github_token:
+    description: "Token used to read workflow runs"
+    required: false
+    default: ""
+runs:
+  using: "composite"
+  steps:
+    - name: "Wait for a running infrastructure deploy"
+      shell: "bash"
+      env:
+        GH_TOKEN: ${{ inputs.github_token || github.token }}
+      run: |
+        set -euo pipefail
+
+        # The initial bootstrap push starts this deploy at the same moment the
+        # infrastructure workflow begins provisioning. Without waiting, the
+        # deploy resolves an empty inventory and does nothing, and a service
+        # deploy fails on a half-built node. Ordering cannot be expressed with
+        # `concurrency` — that only guarantees mutual exclusion, not sequence.
+        #
+        # A missing workflow file (pitch projects have none) or an API hiccup
+        # must not block the deploy, so anything unexpected counts as "idle".
+        deadline=$(( SECONDS + ${{ inputs.timeout_minutes }} * 60 ))
+        while :; do
+          active="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-infrastructure.yml/runs?branch=${GITHUB_REF_NAME}&per_page=20" \
+            --jq '[.workflow_runs[] | select(.status != "completed")] | length' 2>/dev/null || echo 0)"
+          case "$active" in
+            ''|*[!0-9]*) active=0 ;;
+          esac
+
+          [ "$active" -eq 0 ] && break
+
+          if [ "$SECONDS" -ge "$deadline" ]; then
+            echo "::warning::Infrastructure still running after ${{ inputs.timeout_minutes }} minutes — continuing anyway."
+            break
+          fi
+
+          echo "Infrastructure run in progress — waiting 20s ..."
+          sleep 20
+        done
