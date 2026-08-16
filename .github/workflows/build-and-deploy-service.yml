@@ -48,6 +48,10 @@ jobs:
       contents: write
       packages: write
       id-token: write
+      # Needed to see whether an infrastructure run is still in progress.
+      # Declaring permissions at all sets every unlisted scope to none, so the
+      # lookup would silently 403 and the wait would degrade to a no-op.
+      actions: read
 
     services:
       postgres:
@@ -102,6 +106,10 @@ jobs:
           platforms: ${{ inputs.platforms }}
           build-contexts: ${{ inputs.additional_build_context != '' && inputs.additional_build_context || '' }}
 
+
+      - name: "Wait for infrastructure"
+        if: github.event_name != 'pull_request'
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/wait-for-infrastructure@main
 
       - name: "Deploy service"
         if: github.event_name != 'pull_request'
