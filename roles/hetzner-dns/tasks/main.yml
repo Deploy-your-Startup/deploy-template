@@ -173,3 +173,20 @@
   loop: "{{ dns_zones | difference(owned_zones) }}"
   when: dns_zones | difference(owned_zones) | length > 0
   tags: infrastructure
+
+- name: "State which hosts have to resolve to this server"
+  # Printed on every run, deliberately, even when everything above succeeded.
+  # Whether a zone is really delegated to Hetzner is only known for certain from
+  # the second run onwards: a zone created moments ago has not been checked yet,
+  # and an unchecked zone is treated as ours. So on the first run of a project
+  # whose DNS lives elsewhere, nothing above would mention the one record
+  # somebody still has to create by hand — the run looks complete and the site
+  # stays unreachable.
+  debug:
+    msg: >-
+      These hosts must resolve to {{ loadbalancer_ip }}:
+      {{ domains | join(', ') }}.
+      Records in zones delegated to Hetzner were set above. For a zone hosted
+      elsewhere (Cloudflare, …) create an A record with that value at that
+      provider — unproxied, or the certificate cannot be issued.
+  tags: infrastructure
