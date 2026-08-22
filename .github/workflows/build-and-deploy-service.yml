@@ -88,8 +88,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Runs whenever either check is wanted: the image is the same, and a
+      # service with no test suite still needs somewhere to be linted.
       - name: "Test Docker Image"
-        if: ${{ inputs.run_tests }}
+        if: ${{ inputs.run_tests || inputs.run_lint }}
         uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/docker-test@main
         with:
           context: ./${{ inputs.service }}
@@ -98,6 +100,7 @@ jobs:
           tag: ${{ env.DOCKER_IMAGE_TAG }}
           database_url: "postgres://postgres:pa55w0rt@localhost:5432/test_db"
           additional_build_context: ${{ inputs.additional_build_context }}
+          run_tests: ${{ inputs.run_tests }}
           run_lint: ${{ inputs.run_lint }}
 
       - name: "Build and Push Docker Image"
