@@ -17,6 +17,14 @@ on:
         required: false
         default: true
         type: boolean
+      run_lint:
+        description: >-
+          Whether to run `./make.sh lint` before the tests. Off by default so a
+          service that does not answer the `lint` verb yet keeps deploying;
+          switch it on once its make.sh has one.
+        required: false
+        default: false
+        type: boolean
       platforms:
         description: "Comma‑separated list of target platforms (e.g. linux/amd64,linux/arm64)"
         required: false
@@ -90,6 +98,7 @@ jobs:
           tag: ${{ env.DOCKER_IMAGE_TAG }}
           database_url: "postgres://postgres:pa55w0rt@localhost:5432/test_db"
           additional_build_context: ${{ inputs.additional_build_context }}
+          run_lint: ${{ inputs.run_lint }}
 
       - name: "Build and Push Docker Image"
         uses: docker/build-push-action@v7

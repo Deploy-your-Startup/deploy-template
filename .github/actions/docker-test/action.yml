@@ -17,6 +17,14 @@ inputs:
   database_url:
     description: 'Database connection string'
     required: true
+  run_lint:
+    description: >-
+      Run `./make.sh lint` in the test image before the tests. Off by default:
+      this action serves every project at once, so a service whose make.sh does
+      not answer the `lint` verb yet would fail here. Switch it on per service
+      once that verb exists.
+    required: false
+    default: 'false' 
   additional_build_context:
     description: "key=path pairs for additional build contexts in docker e.g. shared=../shared"
     required: false
@@ -41,6 +49,17 @@ runs:
         cache-to: type=gha,mode=max
         build-contexts: ${{ inputs.additional_build_context != '' && inputs.additional_build_context || '' }}
 
+
+    # Lint runs in the same image as the tests, which is what keeps this action
+    # language-agnostic: it asks for a verb and never learns whether the answer
+    # is ruff and ty, or prettier and eslint.
+    - name: Lint in container
+      if: ${{ inputs.run_lint == 'true' }}
+      shell: bash
+      run: |
+        echo "Linting using image: test-image:${{ inputs.tag }}"
+        set -e
+        docker run --rm test-image:${{ inputs.tag }} ./make.sh lint
 
     - name: Run tests in container
       shell: bash
