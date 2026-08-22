@@ -17,6 +17,12 @@ inputs:
   database_url:
     description: 'Database connection string'
     required: true
+  run_tests:
+    description: >-
+      Run `./make.sh test` in the test image. Separate from run_lint so a
+      service with no test suite can still be linted, and vice versa.
+    required: false
+    default: 'true'
   run_lint:
     description: >-
       Run `./make.sh lint` in the test image before the tests. Off by default:
@@ -62,6 +68,7 @@ runs:
         docker run --rm test-image:${{ inputs.tag }} ./make.sh lint
 
     - name: Run tests in container
+      if: ${{ inputs.run_tests == 'true' }}
       shell: bash
       run: |
         echo "Running tests with DATABASE_URL: ${{ inputs.database_url }}"
