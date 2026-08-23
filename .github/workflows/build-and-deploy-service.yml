@@ -78,7 +78,7 @@ jobs:
 
     steps:
       - name: "Setup environment"
-        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/setup-environment@main
+        uses: Deploy-your-Startup/deploy-your-startup/.github/actions/setup-environment@main
 
       - name: "Log into registry"
         if: github.event_name != 'pull_request'
@@ -92,7 +92,7 @@ jobs:
       # service with no test suite still needs somewhere to be linted.
       - name: "Test Docker Image"
         if: ${{ inputs.run_tests || inputs.run_lint }}
-        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/docker-test@main
+        uses: Deploy-your-Startup/deploy-your-startup/.github/actions/docker-test@main
         with:
           context: ./${{ inputs.service }}
           dockerfile: ./${{ inputs.service }}/Dockerfile
@@ -121,11 +121,11 @@ jobs:
 
       - name: "Wait for infrastructure"
         if: github.event_name != 'pull_request'
-        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/wait-for-infrastructure@main
+        uses: Deploy-your-Startup/deploy-your-startup/.github/actions/wait-for-infrastructure@main
 
       - name: "Deploy service"
         if: github.event_name != 'pull_request'
-        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/deploy@main
+        uses: Deploy-your-Startup/deploy-your-startup/.github/actions/deploy@main
         with:
           environment: ${{ inputs.environment }}
           service: ${{ inputs.service }}
