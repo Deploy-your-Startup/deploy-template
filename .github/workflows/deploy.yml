@@ -29,11 +29,11 @@ jobs:
 
       - name: "Wait for infrastructure"
         if: github.event_name != 'pull_request'
-        uses: Deploy-your-Startup/deploy-template/.github/actions/wait-for-infrastructure@main
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/wait-for-infrastructure@main
 
       - name: "Deploy!!"
         if: github.event_name != 'pull_request'
-        uses: Deploy-your-Startup/deploy-template/.github/actions/deploy@main
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/deploy@main
         with:
           environment: ${{ inputs.environment || github.event.inputs.environment || 'production' }}
           vault_password: ${{ secrets.VAULT_PASSWORD }}
