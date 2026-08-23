@@ -34,7 +34,7 @@ jobs:
 
       - name: "Deploy Infrastructure"
         if: github.event_name != 'pull_request'
-        uses: Deploy-your-Startup/deploy-template/.github/actions/deploy@main
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/deploy@main
         with:
           environment: ${{ inputs.environment || github.event.inputs.environment }}
           service: "infrastructure"
