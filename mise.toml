@@ -1,0 +1,3 @@
+[tasks.check]
+description = "Check repository files for whitespace errors"
+run = "git diff --check"
