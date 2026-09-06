@@ -32,8 +32,8 @@
       shell: |
         set -euo pipefail
         mkdir -p "{{ remote_backup_dir }}"
-        APP_DB_NAME="$(kubectl get secret backend -n default -o jsonpath='{.data.backend_db_name}' | base64 -d)"
-        kubectl exec -n default deploy/postgres -- sh -c "pg_dump -U \"\$POSTGRES_USER\" -d \"$APP_DB_NAME\" --no-owner --no-acl" | gzip -c > "{{ remote_backup_dir }}/{{ db_backup_filename }}"
+        APP_DB_NAME="$(kubectl get secret backend -n "{{ k8s_namespace | default('default') }}" -o jsonpath='{.data.backend_db_name}' | base64 -d)"
+        kubectl exec -n "{{ k8s_namespace | default('default') }}" deploy/postgres -- sh -c "pg_dump -U \"\$POSTGRES_USER\" -d \"$APP_DB_NAME\" --no-owner --no-acl" | gzip -c > "{{ remote_backup_dir }}/{{ db_backup_filename }}"
       args:
         executable: /bin/bash
 
@@ -41,7 +41,7 @@
       shell: |
         set -euo pipefail
         mkdir -p "{{ remote_backup_dir }}"
-        kubectl exec -n default deploy/backend -- tar -C /app -czf - media > "{{ remote_backup_dir }}/{{ media_backup_filename }}"
+        kubectl exec -n "{{ k8s_namespace | default('default') }}" deploy/backend -- tar -C /app -czf - media > "{{ remote_backup_dir }}/{{ media_backup_filename }}"
       args:
         executable: /bin/bash
 
@@ -49,7 +49,7 @@
       shell: |
         set -euo pipefail
         mkdir -p "{{ remote_backup_dir }}"
-        kubectl exec -n default deploy/backend -- sh -c "cd /app && uv run python manage.py dumpdata --natural-foreign --natural-primary --settings project.settings" | gzip -c > "{{ remote_backup_dir }}/{{ django_backup_filename }}"
+        kubectl exec -n "{{ k8s_namespace | default('default') }}" deploy/backend -- sh -c "cd /app && uv run python manage.py dumpdata --natural-foreign --natural-primary --settings project.settings" | gzip -c > "{{ remote_backup_dir }}/{{ django_backup_filename }}"
       args:
         executable: /bin/bash
 
