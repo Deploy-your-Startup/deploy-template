@@ -1,4 +1,8 @@
 ---
+- name: "Decide what this project may change cluster-wide"
+  ansible.builtin.include_tasks: preflight.yml
+  tags: cert-manager
+
 - name: "Install cert-manager using Helm CLI"
   ansible.builtin.include_tasks: install_with_helm.yml
   when: cert_manager_install_method == "helm"

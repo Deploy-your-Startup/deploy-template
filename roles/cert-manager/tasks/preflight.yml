@@ -1,0 +1,53 @@
+---
+# cert-manager is cluster-wide, but this role runs once per project. On a shared
+# cluster the second startup's deploy would otherwise re-apply the HelmChart with
+# whatever version *it* pins, flipping the cluster back and forth between
+# releases on every deploy. Same rule the k3s role already follows: report the
+# drift, do not act on it unless someone opts in.
+- name: "Look up the installed cert-manager release"
+  kubernetes.core.k8s_info:
+    api_version: helm.cattle.io/v1
+    kind: HelmChart
+    namespace: kube-system
+    name: cert-manager
+  register: cert_manager_release
+  tags: cert-manager
+
+- name: "Look up the installed Hetzner webhook release"
+  kubernetes.core.k8s_info:
+    api_version: helm.cattle.io/v1
+    kind: HelmChart
+    namespace: kube-system
+    name: cert-manager-webhook-hetzner
+  register: cert_manager_webhook_release
+  when: cert_manager_solver == "dns01"
+  tags: cert-manager
+
+- name: "Decide whether this run owns the cluster-wide install"
+  ansible.builtin.set_fact:
+    cert_manager_installed_version: "{{ (cert_manager_release.resources | first).spec.version | default('', true) }}"
+    cert_manager_present: "{{ cert_manager_release.resources | length > 0 }}"
+    cert_manager_webhook_present: >-
+      {{ (cert_manager_webhook_release.resources | default([]) | length) > 0 }}
+  tags: cert-manager
+
+- name: "Report a cert-manager version this run will not apply"
+  ansible.builtin.debug:
+    msg: >-
+      Cluster runs cert-manager {{ cert_manager_installed_version | default('(unknown)', true) }},
+      this project pins {{ cert_manager_chart_version }}. Leaving it alone —
+      cert-manager is shared by every startup on this cluster. Re-run with
+      -e cert_manager_upgrade=true once you have checked the other projects.
+  when:
+    - cert_manager_present
+    - cert_manager_installed_version != cert_manager_chart_version
+    - not (cert_manager_upgrade | bool)
+  tags: cert-manager
+
+- name: "Set the cluster-wide install flag"
+  ansible.builtin.set_fact:
+    # Install when nothing is there yet, or when an upgrade was explicitly asked
+    # for. A matching version needs no re-apply.
+    cert_manager_install_cluster_wide: >-
+      {{ (not cert_manager_present) or (cert_manager_upgrade | bool) }}
+  tags: cert-manager

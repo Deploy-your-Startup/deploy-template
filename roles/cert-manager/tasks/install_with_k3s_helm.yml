@@ -5,6 +5,7 @@
     dest: "{{ cert_manager_tmp_dir }}/gateway-api-standard-install.yaml"
     mode: "0644"
   tags: cert-manager
+  when: cert_manager_install_cluster_wide | bool
 
 - name: "Apply Gateway API standard-install manifest"
   kubernetes.core.k8s:
@@ -12,6 +13,7 @@
     src: "{{ cert_manager_tmp_dir }}/gateway-api-standard-install.yaml"
     wait: true
   tags: cert-manager
+  when: cert_manager_install_cluster_wide | bool
 
 - name: "Apply cert-manager HelmChart resource for k3s Helm controller"
   kubernetes.core.k8s:
@@ -20,6 +22,7 @@
     definition: "{{ lookup('template', 'cert-manager-helmchart.yaml.j2') }}"
     wait: true
   tags: cert-manager
+  when: cert_manager_install_cluster_wide | bool
 
 - name: "Wait for cert-manager namespace to be created"
   kubernetes.core.k8s_info:
@@ -65,7 +68,9 @@
     namespace: "kube-system"
     definition: "{{ lookup('template', 'webhook-helmchart.yaml.j2') }}"
     wait: true
-  when: cert_manager_solver == "dns01"
+  when:
+    - cert_manager_solver == "dns01"
+    - (not cert_manager_webhook_present) or (cert_manager_upgrade | bool)
   tags: cert-manager
 
 - name: "Wait for Hetzner webhook deployment to be ready"
