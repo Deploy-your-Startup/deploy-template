@@ -1,4 +1,46 @@
 ---
+# The namespace a project deploys into is a single line in its
+# `group_vars/all.yml`. Changing it after the first deploy renames the
+# project's PersistentVolumes and moves their hostPaths, so the cluster would
+# happily hand the new namespace a fresh, empty database while the old data
+# sits untouched and unreferenced on disk. That failure is silent - the deploy
+# goes green - so catch it here instead.
+- name: "Look up this project's existing volumes"
+  kubernetes.core.k8s_info:
+    kind: PersistentVolume
+    label_selectors:
+      - "startup.deploy/project={{ project_name }}"
+  register: project_namespace_existing_volumes
+  tags: always
+
+- name: "Collect namespaces this project's volumes are bound to"
+  ansible.builtin.set_fact:
+    project_namespace_bound_namespaces: >-
+      {{
+        project_namespace_existing_volumes.resources
+        | selectattr('spec.claimRef', 'defined')
+        | map(attribute='spec.claimRef.namespace')
+        | select('defined')
+        | unique
+        | list
+      }}
+  tags: always
+
+- name: "Refuse to deploy into a different namespace than the data lives in"
+  ansible.builtin.fail:
+    msg: >-
+      This project's volumes are bound to namespace(s)
+      {{ project_namespace_bound_namespaces | join(', ') }}, but k8s_namespace
+      is "{{ k8s_namespace | default('default') }}". Deploying now would create
+      empty volumes at a new hostPath and leave the existing data orphaned.
+      To move the project: take a backup (`./make.sh backup`), change
+      k8s_namespace, deploy, then restore into the new namespace
+      (`./make.sh restore`).
+  when:
+    - project_namespace_bound_namespaces | length > 0
+    - (k8s_namespace | default('default')) not in project_namespace_bound_namespaces
+  tags: always
+
 - name: "Create project namespace"
   k8s:
     state: present

@@ -15,3 +15,8 @@ cert_manager_tmp_dir: "/tmp"
 
 # Challenge solver: "http01" (default, no token needed) or "dns01" (requires HCLOUD_TOKEN)
 cert_manager_solver: "http01"
+
+# cert-manager is shared by every startup on the cluster, so a project's deploy
+# never re-applies it once it is installed. Set this to true for the one run
+# that is meant to move the cluster to cert_manager_chart_version.
+cert_manager_upgrade: false

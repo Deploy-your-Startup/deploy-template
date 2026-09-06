@@ -6,12 +6,21 @@ metadata:
   labels:
     app: postgres
     type: local
+    # Identifies the owning project so the namespace guard can tell this
+    # volume apart from another startup's database on a shared cluster.
+    startup.deploy/project: "{{ project_name }}"
 spec:
   storageClassName: manual
   capacity:
     storage: 20Gi
   accessModes:
     - ReadWriteOnce
+  # Bind this volume to one specific claim. Without it every project's volume
+  # is an equally good match for every project's claim - same storage class,
+  # same access mode, same size - and a claim can bind a foreign database.
+  claimRef:
+    namespace: "{{ k8s_namespace | default('default') }}"
+    name: postgres
   hostPath:
     path: "{{ postgres_data_path }}"
 ---
