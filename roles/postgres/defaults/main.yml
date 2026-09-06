@@ -1,1 +1,8 @@
+---
 postgres_version: 18.1
+
+# Keep the legacy names and data path for existing projects in `default`.
+# Namespaces created for new BYOS projects need cluster-wide PV names and host
+# paths that cannot collide with another project's database.
+postgres_pv_name: "{{ 'postgres' if (k8s_namespace | default('default')) == 'default' else k8s_namespace ~ '-postgres' }}"
+postgres_data_path: "{{ '/srv/postgres' if (k8s_namespace | default('default')) == 'default' else '/srv/' ~ k8s_namespace ~ '/postgres' }}"

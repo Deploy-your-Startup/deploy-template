@@ -2,11 +2,14 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  namespace: default
+  namespace: "{{ k8s_namespace | default('default') }}"
   name: postgres
   labels:
     app: postgres
 spec:
+{% if (k8s_namespace | default('default')) != 'default' %}
+  volumeName: "{{ postgres_pv_name }}"
+{% endif %}
   storageClassName: manual
   accessModes:
     - ReadWriteOnce
@@ -14,4 +17,3 @@ spec:
     requests:
       storage: 10Gi
 ---
-

@@ -1,0 +1,11 @@
+---
+- name: "Create project namespace"
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ k8s_namespace }}"
+  when: k8s_namespace | default('default') != 'default'
+  tags: always

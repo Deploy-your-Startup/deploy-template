@@ -2,8 +2,8 @@
 kind: PersistentVolume
 apiVersion: v1
 metadata:
-  name: postgres
-  namespace: default
+  name: "{{ postgres_pv_name }}"
+  namespace: "{{ k8s_namespace | default('default') }}"
   labels:
     app: postgres
     type: local
@@ -14,6 +14,5 @@ spec:
   accessModes:
     - ReadWriteOnce
   hostPath:
-    path: "/srv/postgres"
+    path: "{{ postgres_data_path }}"
 ---
-
