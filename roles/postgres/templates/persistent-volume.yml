@@ -3,7 +3,6 @@ kind: PersistentVolume
 apiVersion: v1
 metadata:
   name: "{{ postgres_pv_name }}"
-  namespace: "{{ k8s_namespace | default('default') }}"
   labels:
     app: postgres
     type: local
