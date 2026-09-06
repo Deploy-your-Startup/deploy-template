@@ -2,7 +2,7 @@ apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
   name: letsencrypt-prod
-  namespace: default
+  namespace: "{{ k8s_namespace | default('default') }}"
 spec:
   acme:
     # The ACME server URL

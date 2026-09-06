@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: postgres
-  namespace: default
+  namespace: "{{ k8s_namespace | default('default') }}"
   labels:
     app: postgres
 spec:
