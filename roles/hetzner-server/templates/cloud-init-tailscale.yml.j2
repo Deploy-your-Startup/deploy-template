@@ -4,6 +4,15 @@
 # Mirrors roles/tailscale/templates/tailscale-up.sh.j2, which does the same for
 # servers that already exist.
 {% set key = tailscale_auth_key | trim %}
+write_files:
+  # Joining creates tailscale0, which starts the socket-activated
+  # cloud-init-hotplugd. The next apt install runs needrestart, which restarts
+  # that service directly — and a directly started hotplugd blocks forever
+  # reading its socket, taking apt (and the Ansible run) down with it.
+  # Mirrors roles/tailscale/tasks/main.yml.
+  - path: /etc/needrestart/conf.d/cloud-init-hotplugd.conf
+    content: |
+      $nrconf{override_rc}{qr(^cloud-init-hotplugd)} = 0;
 runcmd:
   - |
     set -e

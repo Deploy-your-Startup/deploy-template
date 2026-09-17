@@ -28,6 +28,22 @@
         tailscale_running: >-
           {{ (tailscale_status_raw.stdout | default('{}', true) | from_json).BackendState | default('') == 'Running' }}
 
+    - name: "Look for needrestart"
+      stat:
+        path: /etc/needrestart/conf.d
+      register: needrestart_conf_dir
+
+    - name: "Keep needrestart away from cloud-init-hotplugd"
+      # Joining creates tailscale0, which starts the socket-activated
+      # cloud-init-hotplugd. needrestart (run by every apt install) restarts it
+      # directly, and a directly started hotplugd blocks forever reading its
+      # socket — apt hangs, and with it the play.
+      copy:
+        dest: /etc/needrestart/conf.d/cloud-init-hotplugd.conf
+        content: "$nrconf{override_rc}{qr(^cloud-init-hotplugd)} = 0;\n"
+        mode: "0644"
+      when: needrestart_conf_dir.stat.isdir | default(false)
+
     - name: "Install Tailscale"
       shell: curl -fsSL https://tailscale.com/install.sh | sh
       args:
