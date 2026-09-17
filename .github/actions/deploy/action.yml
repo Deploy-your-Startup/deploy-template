@@ -89,6 +89,13 @@ runs:
       run: |
         ./make.sh setup_ansible --no-refresh
     
+    # No-op for public projects; see the join-tailnet action.
+    - name: "Join tailnet (private network mode)"
+      uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/join-tailnet@main
+      with:
+        environment: ${{ inputs.environment }}
+        vault_password: ${{ inputs.vault_password }}
+
     - name: "Start ssh agent and add ssh key to ssh-agent"
       shell: "bash"
       working-directory: ./deployment

@@ -10,3 +10,15 @@ hostvars_prefix: hcloud_
 keyed_groups:
   - key: hcloud_labels
     prefix: hcloud
+# Private network mode: a server labelled network=private is reached over the
+# tailnet by its MagicDNS name instead of its public IP. The label is set by the
+# hetzner-server role from `network_mode`, so every consumer of this inventory —
+# the project playbook, the shared backup/restore/upgrade playbooks and
+# `startup ansible kubeconfig` — switches over without knowing the mode exists.
+# Compose runs after connect_with, so this overrides ansible_host only for
+# labelled servers; everything else keeps the public IP.
+compose:
+  ansible_host: >-
+    hcloud_name
+    if (hcloud_labels | default({})).get('network') == 'private'
+    else ansible_host

@@ -1,0 +1,4 @@
+tailscale up \
+  --auth-key='{{ tailscale_auth_key | trim }}{{ "?ephemeral=false&preauthorized=true" if (tailscale_auth_key | trim).startswith("tskey-client-") else "" }}' \
+  --advertise-tags='{{ tailscale_tags | default(["tag:server"]) | join(",") }}' \
+  --hostname='{{ tailscale_node_hostname }}'
