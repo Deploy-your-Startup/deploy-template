@@ -1,0 +1,40 @@
+name: "Join tailnet"
+description: >-
+  Puts the runner on the tailnet when the project runs in private network mode
+  (network_mode: private), so Ansible can reach servers that have no public
+  ports. A no-op for public projects. The OAuth client is read from the vault,
+  so it is managed with `startup secrets` like every other project secret.
+inputs:
+  environment:
+    description: "Environment whose group_vars decide the network mode"
+    required: true
+  vault_password:
+    description: "Password for ansible vault"
+    required: true
+  tags:
+    description: "Tailscale tags the runner joins with; the OAuth client must own them"
+    required: false
+    default: "tag:ci"
+outputs:
+  mode:
+    description: "public or private"
+    value: ${{ steps.credentials.outputs.mode }}
+runs:
+  using: "composite"
+  steps:
+    - name: "Read network mode"
+      id: credentials
+      shell: "bash"
+      working-directory: ./deployment
+      env:
+        ENVIRONMENT: ${{ inputs.environment }}
+        VAULT_PASSWORD: ${{ inputs.vault_password }}
+      run: bash "${{ github.action_path }}/read-credentials.sh"
+
+    - name: "Connect to Tailscale"
+      if: steps.credentials.outputs.mode == 'private'
+      uses: tailscale/github-action@v4
+      with:
+        oauth-client-id: ${{ steps.credentials.outputs.oauth_client_id }}
+        oauth-secret: ${{ steps.credentials.outputs.oauth_secret }}
+        tags: ${{ inputs.tags }}
