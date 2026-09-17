@@ -89,61 +89,12 @@ runs:
       run: |
         ./make.sh setup_ansible --no-refresh
     
-    # Private network mode: the servers only listen on the tailnet, so the runner
-    # has to join it before Ansible can reach them. Public projects skip both
-    # steps. The OAuth client comes from the vault rather than GitHub secrets, so
-    # it is managed with `startup secrets` like every other project secret.
-    - name: "Read network mode"
-      id: network
-      shell: "bash"
-      working-directory: ./deployment
-      env:
-        ENVIRONMENT: ${{ inputs.environment }}
-        VAULT_PASSWORD: ${{ inputs.vault_password }}
-      run: |
-        set -euo pipefail
-        # Same precedence as Ansible: the environment file overrides all.yml.
-        # `|| true` is load-bearing: every project that predates this mode has
-        # no network_mode line, grep exits 1 on that, and pipefail would fail
-        # the deploy of every existing project.
-        mode="$({ grep -hE '^network_mode:' group_vars/all.yml "group_vars/${ENVIRONMENT}.yml" 2>/dev/null || true; } \
-          | tail -n 1 | sed -E "s/^network_mode:[[:space:]]*['\"]?([a-z]+).*/\1/")"
-        mode="${mode:-public}"
-        echo "mode=$mode" >> "$GITHUB_OUTPUT"
-        if [ "$mode" != "private" ]; then
-          exit 0
-        fi
-
-        read_field() {
-          local value=""
-          for file in "group_vars/${ENVIRONMENT}.yml" group_vars/all.yml; do
-            [ -f "$file" ] || continue
-            value="$(startup secrets get-field -f "$file" --field "$1" -p "$VAULT_PASSWORD" 2>/dev/null || true)"
-            [ -n "$value" ] && break
-          done
-          if [ -z "$value" ]; then
-            echo "::error::network_mode is private, but $1 is not set in group_vars. Vault it with 'startup secrets update --field-stdin $1'." >&2
-            exit 1
-          fi
-          printf '%s' "$value"
-        }
-
-        client_id="$(read_field tailscale_ci_oauth_client_id)"
-        secret="$(read_field tailscale_ci_oauth_secret)"
-        echo "::add-mask::$client_id"
-        echo "::add-mask::$secret"
-        {
-          echo "oauth_client_id=$client_id"
-          echo "oauth_secret=$secret"
-        } >> "$GITHUB_OUTPUT"
-
-    - name: "Join tailnet"
-      if: steps.network.outputs.mode == 'private'
-      uses: tailscale/github-action@v4
+    # No-op for public projects; see the join-tailnet action.
+    - name: "Join tailnet (private network mode)"
+      uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/join-tailnet@main
       with:
-        oauth-client-id: ${{ steps.network.outputs.oauth_client_id }}
-        oauth-secret: ${{ steps.network.outputs.oauth_secret }}
-        tags: tag:ci
+        environment: ${{ inputs.environment }}
+        vault_password: ${{ inputs.vault_password }}
 
     - name: "Start ssh agent and add ssh key to ssh-agent"
       shell: "bash"

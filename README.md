@@ -47,6 +47,14 @@ so projects only need one synced private repository.
   - Vault integration for secrets management
   - SSH key management for secure deployments
 
+### Join Tailnet Action
+- **Location**: `.github/actions/join-tailnet/action.yml`
+- **Purpose**: Put the runner on the tailnet for projects in private network mode
+- **Features**:
+  - No-op unless `network_mode: private` (environment file overrides `all.yml`)
+  - Reads the CI OAuth client from the vault and masks it
+  - Used by the Deploy Action; see "Private Network Mode" below
+
 ### Export Shared Roles Action
 - **Location**: `.github/actions/export-shared-roles/action.yml`
 - **Purpose**: Copy the bundled shared roles into `deployment/.shared-roles`
