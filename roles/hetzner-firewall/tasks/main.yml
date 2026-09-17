@@ -3,9 +3,34 @@
 # HETZNER FIREWALL CONFIGURATION
 # =============================================================================
 # Einfache Regeln:
-# - SSH, HTTP, HTTPS von überall
+# - SSH, HTTP, HTTPS, Kubernetes API von überall (network_mode: public)
 # - Alles andere nur aus dem privaten Netzwerk
+#
+# network_mode: private schließt die öffentlichen Ports. Erreichbar ist der
+# Cluster dann nur noch über das Tailnet — Tailscale-Verkehr kommt über das
+# tailscale0-Interface und wird von der Hetzner-Firewall gar nicht gesehen.
+# Offen bleibt nur UDP 41641, damit Geräte direkt statt über ein DERP-Relay
+# verbunden werden.
 # =============================================================================
+
+- name: "Check the network mode"
+  assert:
+    that:
+      - (network_mode | default('public')) in ['public', 'private']
+    fail_msg: "network_mode must be 'public' or 'private', got '{{ network_mode }}'"
+
+- name: "Refuse a load balancer in private network mode"
+  # A Hetzner load balancer is a public endpoint of its own. Cloud firewalls do
+  # not apply to it, so it would keep the site reachable from the internet no
+  # matter what the rules below say.
+  assert:
+    that:
+      - not (create_load_balancer | default(false) | bool)
+    fail_msg: >-
+      network_mode: private cannot be combined with create_load_balancer: true —
+      the load balancer would stay publicly reachable. Set create_load_balancer
+      to false (and delete the existing load balancer) first.
+  when: (network_mode | default('public')) == 'private'
 
 - name: "Get all project servers"
   hetzner.hcloud.server_info:
@@ -24,8 +49,11 @@
   hetzner.hcloud.firewall:
     name: "{{ firewall_name }}"
     state: present
-    rules:
-      # --- PUBLIC ACCESS ---
+    rules: >-
+      {{ (firewall_private_rules if (network_mode | default('public')) == 'private' else firewall_public_rules)
+         + firewall_cluster_rules }}
+  vars:
+    firewall_public_rules:
       - direction: in
         protocol: tcp
         port: "22"
@@ -58,6 +86,16 @@
           - ::/0
         description: "Kubernetes API"
 
+    firewall_private_rules:
+      - direction: in
+        protocol: udp
+        port: "41641"
+        source_ips:
+          - 0.0.0.0/0
+          - ::/0
+        description: "Tailscale direct connections"
+
+    firewall_cluster_rules:
       # --- PRIVATE NETWORK ACCESS (Cluster-intern) ---
       - direction: in
         protocol: tcp
