@@ -7,9 +7,8 @@
     fail_msg: >-
       Tailscale is enabled for {{ project_name }} (network_mode={{ network_mode | default('public') }}),
       but tailscale_auth_key is not set. Vault an OAuth client secret with the
-      auth_keys scope into group_vars/<env>.yml:
-      printf '%s' "$SECRET" | startup secrets update -r deployment/group_vars/production.yml
-      --field-stdin tailscale_auth_key --create-in deployment/group_vars/production.yml
+      auth_keys scope into group_vars/<env>.yml — see "Private Network Mode" in
+      the deploy-template README for the command.
   when: tailscale_enabled | bool
   tags: infrastructure,tailscale
 

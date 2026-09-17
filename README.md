@@ -274,19 +274,23 @@ firewalls do not cover.
    ],
    ```
 
-2. Two OAuth clients (admin console → Settings), both with the writable
-   `auth_keys` scope: one tagged `tag:server` for the nodes, one tagged `tag:ci`
-   for the pipelines. OAuth secrets do not expire, unlike auth keys.
+2. Two OAuth clients (admin console → Settings → Trust credentials → Credential →
+   OAuth), both with **Keys → Auth Keys → Write**: one tagged `tag:server` for the
+   nodes, one tagged `tag:ci` for the pipelines. OAuth secrets do not expire,
+   unlike auth keys. Descriptions accept only letters, digits and spaces.
 
-3. Vault the secrets into the project:
+3. Vault them from the project's `deployment/` directory. Run the command first,
+   then generate the credential and paste into the hidden prompts — copying the
+   command after the secret would put the command text into the vault. Paths
+   are absolute on purpose: a relative `--create-in` resolves against the
+   directory of the `-r` file, not the current one.
 
    ```bash
-   printf '%s' "$SERVER_SECRET" | startup secrets update -r deployment/group_vars/production.yml \
-     --field-stdin tailscale_auth_key --create-in deployment/group_vars/production.yml
-   printf '%s' "$CI_CLIENT_ID" | startup secrets update -r deployment/group_vars/production.yml \
-     --field-stdin tailscale_ci_oauth_client_id --create-in deployment/group_vars/production.yml
-   printf '%s' "$CI_SECRET" | startup secrets update -r deployment/group_vars/production.yml \
-     --field-stdin tailscale_ci_oauth_secret --create-in deployment/group_vars/production.yml
+   read -rs "?Server client secret: " s && printf '%s' "$s" | startup secrets update -r "$PWD/group_vars/production.yml" --field-stdin tailscale_auth_key --create-in "$PWD/group_vars/production.yml"; unset s
+   ```
+
+   ```bash
+   read -rs "?CI client ID: " id && echo && read -rs "?CI client secret: " sec && echo && printf '%s' "$id" | startup secrets update -r "$PWD/group_vars/production.yml" --field-stdin tailscale_ci_oauth_client_id --create-in "$PWD/group_vars/production.yml" && printf '%s' "$sec" | startup secrets update -r "$PWD/group_vars/production.yml" --field-stdin tailscale_ci_oauth_secret --create-in "$PWD/group_vars/production.yml"; unset id sec
    ```
 
 ### Switching an existing project
