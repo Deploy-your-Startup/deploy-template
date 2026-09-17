@@ -262,7 +262,7 @@ they did, over the tailnet instead of the public IP.
 | Pipelines (`actions/deploy`) | unchanged | runner joins the tailnet as `tag:ci` first |
 | `startup ansible kubeconfig` | `https://<public-ip>:6443` | `https://<node>:6443` (the node name is in k3s' certificate) |
 | TLS (`cert-manager`) | `http01` or `dns01` | `dns01` required |
-| DNS (`hetzner-dns`) | A → public IP | A → tailnet IP (100.x), written after the join |
+| DNS (project playbook) | `hetzner-dns` → public IP | `hetzner-dns` → tailnet IP (100.x), imported after the join |
 
 A load balancer is refused in private mode: it is a public endpoint that cloud
 firewalls do not cover.
