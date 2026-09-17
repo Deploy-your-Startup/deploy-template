@@ -103,7 +103,10 @@ runs:
       run: |
         set -euo pipefail
         # Same precedence as Ansible: the environment file overrides all.yml.
-        mode="$(grep -hE '^network_mode:' group_vars/all.yml "group_vars/${ENVIRONMENT}.yml" 2>/dev/null \
+        # `|| true` is load-bearing: every project that predates this mode has
+        # no network_mode line, grep exits 1 on that, and pipefail would fail
+        # the deploy of every existing project.
+        mode="$({ grep -hE '^network_mode:' group_vars/all.yml "group_vars/${ENVIRONMENT}.yml" 2>/dev/null || true; } \
           | tail -n 1 | sed -E "s/^network_mode:[[:space:]]*['\"]?([a-z]+).*/\1/")"
         mode="${mode:-public}"
         echo "mode=$mode" >> "$GITHUB_OUTPUT"
