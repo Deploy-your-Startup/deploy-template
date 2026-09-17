@@ -73,13 +73,21 @@
   hcloud_server:
     location: "{{ location }}"
     force: true
-    labels:
-      type: "{{ node_type }}"
-      ingress: "true"
-    name: "{{ project_name }}-{{ node_type }}-{{ item }}"
+    # network=private is what switches the inventory to the tailnet address
+    # (inventory.hcloud.yml). Public projects keep exactly the labels they had,
+    # so this is no diff for them.
+    labels: >-
+      {{ {'type': node_type, 'ingress': 'true'}
+         | combine({'network': 'private'} if (network_mode | default('public')) == 'private' else {}) }}
+    name: "{{ server_name }}"
     server_type: "{{ node_server_type }}"
     ssh_keys: "{{ ssh_public_keys | map(attribute='name') | list }}"
     image: "{{ hetzner_os_image }}"
+    # Only read by Hetzner when the server is created, so existing servers are
+    # untouched; they join via the tailscale role instead. A new private server
+    # has to be on the tailnet before Ansible can reach it at all.
+    user_data: >-
+      {{ lookup('template', 'cloud-init-tailscale.yml.j2') if tailscale_on_boot | bool else omit }}
     # Attach at creation, not afterwards. A server attached to a network only
     # after it has booted does not get the interface configured until it is
     # rebooted — k3s then finds no 10.x address and silently joins on the
@@ -89,6 +97,10 @@
     private_networks: ["{{ network_name }}"]
     state: present
   loop: "{{ range(0, node_count) | list }}"  # Startet bei 0!
+  vars:
+    server_name: "{{ project_name }}-{{ node_type }}-{{ item }}"
+    tailscale_on_boot: >-
+      {{ tailscale_enabled | default((network_mode | default('public')) == 'private') }}
   register: created_servers
   tags: infrastructure
 

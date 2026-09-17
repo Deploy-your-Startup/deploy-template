@@ -234,6 +234,81 @@ your-project/
     └── requirements.txt # Python dependencies for deployment
 ```
 
+## Private Network Mode
+
+`network_mode: private` in a project's `group_vars` takes the cluster off the
+internet. The servers keep running on Hetzner, but every public port except
+Tailscale's UDP 41641 is closed; the site, SSH and the Kubernetes API are only
+reachable from devices on your tailnet. Nothing changes for how you work:
+`startup ansible …`, `kubectl --context …` and the pipelines keep doing what
+they did, over the tailnet instead of the public IP.
+
+### How it fits together
+
+| Piece | Public mode | Private mode |
+|---|---|---|
+| Firewall (`hetzner-firewall`) | 22, 80, 443, 6443 open | only UDP 41641 open |
+| Inventory (`inventory.hcloud.yml`) | `ansible_host` = public IP | servers labelled `network=private` → MagicDNS name |
+| New servers (`hetzner-server`) | – | join the tailnet on first boot via cloud-init |
+| Existing servers (`tailscale` role) | only with `tailscale_enabled: true` | join over SSH, report `tailscale_ipv4` |
+| Pipelines (`actions/deploy`) | unchanged | runner joins the tailnet as `tag:ci` first |
+| `startup ansible kubeconfig` | `https://<public-ip>:6443` | `https://<node>:6443`, `tls-server-name: kubernetes` |
+| TLS (`cert-manager`) | `http01` or `dns01` | `dns01` required |
+| DNS (`hetzner-dns`) | A → public IP | A → tailnet IP (100.x), written after the join |
+
+A load balancer is refused in private mode: it is a public endpoint that cloud
+firewalls do not cover.
+
+### One-time tailnet setup
+
+1. Tailnet policy — tags, and who may reach them:
+
+   ```jsonc
+   "tagOwners": {
+     "tag:server": ["autogroup:admin"],
+     "tag:ci":     ["autogroup:admin"],
+   },
+   "grants": [
+     { "src": ["autogroup:admin"], "dst": ["tag:server"], "ip": ["*"] },
+     { "src": ["tag:ci"], "dst": ["tag:server"], "ip": ["tcp:22", "tcp:6443"] },
+   ],
+   ```
+
+2. Two OAuth clients (admin console → Settings), both with the writable
+   `auth_keys` scope: one tagged `tag:server` for the nodes, one tagged `tag:ci`
+   for the pipelines. OAuth secrets do not expire, unlike auth keys.
+
+3. Vault the secrets into the project:
+
+   ```bash
+   printf '%s' "$SERVER_SECRET" | startup secrets update -r deployment/group_vars/production.yml \
+     --field-stdin tailscale_auth_key --create-in deployment/group_vars/production.yml
+   printf '%s' "$CI_CLIENT_ID" | startup secrets update -r deployment/group_vars/production.yml \
+     --field-stdin tailscale_ci_oauth_client_id --create-in deployment/group_vars/production.yml
+   printf '%s' "$CI_SECRET" | startup secrets update -r deployment/group_vars/production.yml \
+     --field-stdin tailscale_ci_oauth_secret --create-in deployment/group_vars/production.yml
+   ```
+
+### Switching an existing project
+
+Two runs, so a broken tailnet can never lock you out:
+
+1. `tailscale_enabled: true`, `cert_manager_solver: dns01` → `startup ansible infrastructure`.
+   The nodes join over the still-open public SSH. Check `tailscale status` on
+   your machine lists them.
+2. `network_mode: private` → `startup ansible infrastructure`. Labels flip, the
+   inventory switches to the tailnet, the firewall closes. Then
+   `startup ansible kubeconfig` to point your context at the tailnet.
+
+Going back is the same run with `network_mode: public`: the provisioning play
+only talks to the Hetzner API, so it reopens the firewall even when SSH is
+unreachable.
+
+A server that is deleted and recreated leaves a stale device of the same name in
+the tailnet, and the new one would join as `<name>-1`. The `tailscale` role
+fails on that instead of letting the inventory reach the dead device — remove the
+old device in the admin console.
+
 ## Dependabot Configuration
 
 This repository includes automatic dependency updates via Dependabot for:

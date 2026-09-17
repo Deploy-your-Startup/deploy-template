@@ -1,0 +1,29 @@
+---
+# =============================================================================
+# TAILSCALE — joins cluster nodes to the tailnet
+# =============================================================================
+# `network_mode: private` (group_vars) closes the public ports and makes every
+# tool reach the servers over the tailnet. This role is what puts them there.
+#
+# Joining is split from switching, so an existing public cluster can migrate
+# without locking itself out:
+#
+#   1. tailscale_enabled: true   (network_mode still public)
+#      -> infrastructure run joins the nodes over the public IP
+#   2. network_mode: private
+#      -> the next run connects over the tailnet and closes the firewall
+#
+# A new project can start with network_mode: private directly: the
+# hetzner-server role hands the join to cloud-init, so the node is on the
+# tailnet before Ansible first tries to reach it.
+tailscale_enabled: "{{ (network_mode | default('public')) == 'private' }}"
+
+# OAuth client secret (tskey-client-...) with the `auth_keys` scope, vaulted in
+# group_vars/<env>.yml. An OAuth secret does not expire, unlike an auth key,
+# which would silently break provisioning of the next node 90 days later.
+# tailscale_auth_key: !vault |
+
+# Tags every node advertises. The OAuth client must own them, and the tailnet
+# policy decides who may reach tag-carrying devices — see the README.
+tailscale_tags:
+  - "tag:server"

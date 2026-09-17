@@ -1,0 +1,70 @@
+---
+- name: "Require a Tailscale auth key"
+  assert:
+    that:
+      - tailscale_auth_key is defined
+      - tailscale_auth_key | trim | length > 0
+    fail_msg: >-
+      Tailscale is enabled for {{ project_name }} (network_mode={{ network_mode | default('public') }}),
+      but tailscale_auth_key is not set. Vault an OAuth client secret with the
+      auth_keys scope into group_vars/<env>.yml:
+      printf '%s' "$SECRET" | startup secrets update -r deployment/group_vars/production.yml
+      --field-stdin tailscale_auth_key --create-in deployment/group_vars/production.yml
+  when: tailscale_enabled | bool
+  tags: infrastructure,tailscale
+
+- name: "Join the tailnet"
+  when: tailscale_enabled | bool
+  tags: infrastructure,tailscale
+  vars:
+    tailscale_node_hostname: "{{ inventory_hostname }}"
+  block:
+    - name: "Read Tailscale state"
+      shell: tailscale status --json 2>/dev/null || true
+      register: tailscale_status_raw
+      changed_when: false
+
+    - name: "Decide whether this node still has to join"
+      set_fact:
+        tailscale_running: >-
+          {{ (tailscale_status_raw.stdout | default('{}', true) | from_json).BackendState | default('') == 'Running' }}
+
+    - name: "Install Tailscale"
+      shell: curl -fsSL https://tailscale.com/install.sh | sh
+      args:
+        creates: /usr/bin/tailscale
+
+    - name: "Bring Tailscale up"
+      shell: "{{ lookup('template', 'tailscale-up.sh.j2') }}"
+      no_log: true
+      when: not tailscale_running
+
+    - name: "Read this node's tailnet identity"
+      shell: tailscale status --json
+      register: tailscale_self_raw
+      changed_when: false
+
+    - name: "Set tailnet facts"
+      set_fact:
+        tailscale_ipv4: "{{ (tailscale_self_raw.stdout | from_json).Self.TailscaleIPs | select('match', '^100\\.') | first }}"
+        tailscale_dns_name: "{{ (tailscale_self_raw.stdout | from_json).Self.DNSName | regex_replace('\\.$', '') }}"
+
+    - name: "Refuse a node that joined under a different name"
+      # The inventory reaches private nodes by their MagicDNS name, which is the
+      # server name. If the tailnet still holds a device of that name — a server
+      # that was deleted and recreated — the new one silently becomes
+      # "<name>-1", and every tool would talk to the dead device instead.
+      fail:
+        msg: |
+          {{ inventory_hostname }} joined the tailnet as {{ tailscale_dns_name }}.
+          The inventory expects the MagicDNS name {{ inventory_hostname }}, so this
+          node would be unreachable in private network mode.
+
+          Remove the stale "{{ inventory_hostname }}" device in the Tailscale
+          admin console, then run `tailscale set --hostname={{ inventory_hostname }}`
+          on this node (or re-run this play).
+      when: tailscale_dns_name.split('.')[0] != inventory_hostname
+
+    - name: "Report tailnet address"
+      debug:
+        msg: "{{ inventory_hostname }} is on the tailnet as {{ tailscale_dns_name }} ({{ tailscale_ipv4 }})"

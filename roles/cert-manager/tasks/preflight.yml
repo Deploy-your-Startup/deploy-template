@@ -1,4 +1,17 @@
 ---
+- name: "Require the DNS-01 solver in private network mode"
+  # HTTP-01 has Let's Encrypt fetch a token from port 80 of the host, which
+  # private network mode closes to the internet. DNS-01 proves ownership through
+  # a TXT record instead and works for hosts nobody outside can reach.
+  assert:
+    that:
+      - cert_manager_solver == "dns01"
+    fail_msg: >-
+      network_mode: private needs cert_manager_solver: dns01 (currently
+      '{{ cert_manager_solver }}') — HTTP-01 challenges cannot reach the cluster.
+  when: (network_mode | default('public')) == 'private'
+  tags: cert-manager
+
 # cert-manager is cluster-wide, but this role runs once per project. On a shared
 # cluster the second startup's deploy would otherwise re-apply the HelmChart with
 # whatever version *it* pins, flipping the cluster back and forth between
