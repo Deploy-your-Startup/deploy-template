@@ -1,192 +1,24 @@
 ---
-- name: "Set domains list"
-  set_fact:
-    domains: "{{ [base_domain] + additional_domains }}"
-  tags: infrastructure
-
-- name: "Extract zone names from domains (strip subdomain prefixes)"
-  set_fact:
-    dns_zones: "{{ domains | map('regex_replace', '^.*\\.([^.]+\\.[^.]+)$', '\\1') | unique | list }}"
-  tags: infrastructure
-
-- name: "Build subdomain records list"
-  set_fact:
-    subdomain_records: >-
-      {{
-        domains
-        | select('match', '^.+\..+\..+$')
-        | map('regex_replace', '^(.+)\.([^.]+\.[^.]+)$', '\\1,\\2')
-        | list
-      }}
-  tags: infrastructure
-
-- name: "Classify apex domains (host == its own zone, e.g. example.com)"
-  # Apex = exactly two labels. Subdomains (app.example.com) are handled by
-  # the per-subdomain task below and must NOT get @ or * records, otherwise
-  # they would hijack the whole shared root zone.
-  set_fact:
-    apex_domains: "{{ domains | select('match', '^[^.]+\\.[^.]+$') | list }}"
-  tags: infrastructure
-
-- name: "Look at the zones this project already holds"
-  # Hetzner checks each zone's delegation itself and reports the result, which
-  # is what tells us whether a zone is actually in use. Merely holding a zone
-  # proves nothing: the previous version asked the project which zones it
-  # contains — right after creating them — so every zone counted as "ours", the
-  # "not owned by this project" warning could never fire, and a domain hosted
-  # elsewhere had its records written into a zone nobody ever queries. The run
-  # went green and the site stayed dark.
-  hetzner.hcloud.zone_info:
-  register: existing_zones_info
-  tags: infrastructure
-
-- name: "Separate externally delegated zones from the rest"
-  # Only a definite "invalid" counts as external. A zone created moments ago
-  # has not been checked yet and reports no verdict, and treating that as
-  # external would break the normal case: a correctly delegated domain would
-  # lose its DNS records on the very run that sets it up.
-  set_fact:
-    external_zones: >-
-      {{ existing_zones_info.hcloud_zone_info
-         | selectattr('authoritative_nameservers.delegation_status',
-                      'defined')
-         | selectattr('authoritative_nameservers.delegation_status',
-                      'equalto', 'invalid')
-         | map(attribute='name') | list
-         | intersect(dns_zones) }}
-  tags: infrastructure
-
-- name: "Set the zones this role may manage"
-  set_fact:
-    managed_zones: "{{ dns_zones | difference(external_zones) }}"
-  tags: infrastructure
-
-- name: "Create DNS zones in Hetzner"
-  hetzner.hcloud.zone:
-    name: "{{ item }}"
-    mode: primary
-    state: present
-  loop: "{{ managed_zones }}"
-  register: zone_results
-  failed_when:
-    - zone_results is failed
-    - "'already exists' not in (zone_results.msg | default(''))"
-  tags: infrastructure
-
-- name: "Get list of zones owned by this project"
-  hetzner.hcloud.zone_info:
-  register: owned_zones_info
-  tags: infrastructure
-
-- name: "Set owned zones list"
-  # Intersected with managed_zones on purpose: an earlier run may have left a
-  # zone for an externally hosted domain behind, and writing records into it
-  # would be just as invisible as before.
-  set_fact:
-    owned_zones: >-
-      {{ owned_zones_info.hcloud_zone_info
-         | map(attribute='name') | list
-         | intersect(managed_zones) }}
-  tags: infrastructure
-
-- name: "Show owned zones"
-  debug:
-    msg: "Owned zones: {{ owned_zones }} (requested: {{ dns_zones }})"
-  tags: infrastructure
-
-- name: "Report domains whose DNS must be set at another provider"
+# In private network mode the servers are only reachable over the tailnet, so
+# the records must point at a tailnet address (100.x). The provisioning play
+# that imports this role runs before any node has one, and hands in the master's
+# ansible_host — which private mode turns into a MagicDNS name, not an IP.
+# Writing that would fail at best. So the records are only written when the
+# target is an IPv4 address; the project playbook re-imports this role after the
+# tailscale role with loadbalancer_ip set to the master's tailscale_ipv4.
+- name: "Skip DNS records without an IPv4 target"
   debug:
     msg: >-
-      DNS for '{{ item }}' is delegated to
-      {{ existing_zones_info.hcloud_zone_info
-         | selectattr('name', 'equalto', item)
-         | map(attribute='authoritative_nameservers.delegated')
-         | first | default(['?']) | join(' ') }}
-      — not to Hetzner, so nothing was changed there. Point these hosts at
-      {{ loadbalancer_ip }} with an A record at that provider, otherwise the
-      site stays unreachable:
-      {{ domains | select('search', '(^|\.)' ~ (item | regex_escape) ~ '$') | list | join(', ') }}
-  loop: "{{ external_zones }}"
+      Not writing DNS records: '{{ loadbalancer_ip }}' is not an IPv4 address
+      (network_mode={{ network_mode | default('public') }}). In private mode they
+      are written after the nodes joined the tailnet.
+  when: loadbalancer_ip is not match('^[0-9]{1,3}(\\.[0-9]{1,3}){3}$')
   tags: infrastructure
 
-- name: "Add DNS @ record — only for owned apex domains"
-  # Subdomain deployments (app.example.com) intentionally skip this so they
-  # never claim the apex of a zone they share with other projects.
-  hetzner.hcloud.zone_rrset:
-    zone: "{{ item }}"
-    name: "@"
-    type: A
-    ttl: 300
-    records:
-      - value: "{{ loadbalancer_ip }}"
-    state: present
-  loop: "{{ apex_domains | intersect(owned_zones) }}"
-  tags: infrastructure
-
-- name: "Add DNS wildcard (*) record — apex only, opt-out via dns_apex_wildcard"
-  hetzner.hcloud.zone_rrset:
-    zone: "{{ item }}"
-    name: "*"
-    type: A
-    ttl: 300
-    records:
-      - value: "{{ loadbalancer_ip }}"
-    state: present
-  loop: "{{ apex_domains | intersect(owned_zones) }}"
-  when: dns_apex_wildcard | default(true) | bool
-  tags: infrastructure
-
-- name: "Add DNS records for subdomains (e.g. www)"
-  hetzner.hcloud.zone_rrset:
-    zone: "{{ item.split(',')[1] }}"
-    name: "{{ item.split(',')[0] }}"
-    type: A
-    ttl: 300
-    records:
-      - value: "{{ loadbalancer_ip }}"
-    state: present
-  loop: "{{ subdomain_records }}"
-  when:
-    - subdomain_records | length > 0
-    - item.split(',')[1] in owned_zones
-  tags: infrastructure
-
-- name: "Add extra DNS records per zone"
-  hetzner.hcloud.zone_rrset:
-    zone: "{{ item.0.key }}"
-    name: "{{ item.1.name }}"
-    type: "{{ item.1.type }}"
-    ttl: "{{ item.1.ttl }}"
-    records: "{{ item.1.records }}"
-    state: present
-  loop: "{{ extra_dns_records | dict2items | subelements('value') }}"
-  loop_control:
-    label: "{{ item.1.type }} {{ item.1.name }}.{{ item.0.key }}"
-  when:
-    - extra_dns_records is defined
-    - item.0.key in owned_zones
-  tags: infrastructure
-
-- name: "Warn about zones not owned by this project"
-  debug:
-    msg: "WARNING: Zone '{{ item }}' exists globally but is not owned by this project. Delete it from dns.hetzner.com first."
-  loop: "{{ dns_zones | difference(owned_zones) }}"
-  when: dns_zones | difference(owned_zones) | length > 0
-  tags: infrastructure
-
-- name: "State which hosts have to resolve to this server"
-  # Printed on every run, deliberately, even when everything above succeeded.
-  # Whether a zone is really delegated to Hetzner is only known for certain from
-  # the second run onwards: a zone created moments ago has not been checked yet,
-  # and an unchecked zone is treated as ours. So on the first run of a project
-  # whose DNS lives elsewhere, nothing above would mention the one record
-  # somebody still has to create by hand — the run looks complete and the site
-  # stays unreachable.
-  debug:
-    msg: >-
-      These hosts must resolve to {{ loadbalancer_ip }}:
-      {{ domains | join(', ') }}.
-      Records in zones delegated to Hetzner were set above. For a zone hosted
-      elsewhere (Cloudflare, …) create an A record with that value at that
-      provider — unproxied, or the certificate cannot be issued.
+- name: "Write DNS records"
+  include_tasks:
+    file: records.yml
+    apply:
+      tags: infrastructure
+  when: loadbalancer_ip is match('^[0-9]{1,3}(\\.[0-9]{1,3}){3}$')
   tags: infrastructure

@@ -95,12 +95,20 @@
     k3s_private_flags_agent: "{{ ('--node-ip=' ~ node_private_ip ~ ' --flannel-iface=' ~ flannel_interface) if has_private_network else '' }}"
 
 - name: "Compose k3s exec args"
+  # --tls-san uses the public IP even when ansible_host is something else. In
+  # private network mode ansible_host becomes the node's MagicDNS name, and
+  # following it here would change the composed args of every existing node —
+  # which the upgrade preflight below rightly treats as drift. The API is
+  # reached over the tailnet with tls-server-name instead (see the CLI's
+  # kubeconfig command), so the certificate does not need the tailnet name.
+  vars:
+    k3s_api_san: "{{ hcloud_ipv4 | default(ansible_host, true) }}"
   set_fact:
     k3s_node_exec: >-
       {%- if is_first_master -%}
-      server --cluster-init {{ k3s_private_flags_server }} --tls-san={{ ansible_host }} --node-label=type=master
+      server --cluster-init {{ k3s_private_flags_server }} --tls-san={{ k3s_api_san }} --node-label=type=master
       {%- elif is_master -%}
-      server --server=https://{{ first_master_ip }}:6443 {{ k3s_private_flags_server }} --tls-san={{ ansible_host }} --node-label=type=master
+      server --server=https://{{ first_master_ip }}:6443 {{ k3s_private_flags_server }} --tls-san={{ k3s_api_san }} --node-label=type=master
       {%- else -%}
       agent {{ k3s_private_flags_agent }} --node-label=type=worker
       {%- endif -%}

@@ -1,0 +1,14 @@
+#cloud-config
+# Joins the tailnet on first boot. In private network mode nothing but the
+# tailnet can reach this server, so Ansible depends on this having run.
+# Mirrors roles/tailscale/templates/tailscale-up.sh.j2, which does the same for
+# servers that already exist.
+{% set key = tailscale_auth_key | trim %}
+runcmd:
+  - |
+    set -e
+    curl -fsSL https://tailscale.com/install.sh | sh
+    tailscale up \
+      --auth-key='{{ key }}{{ "?ephemeral=false&preauthorized=true" if key.startswith("tskey-client-") else "" }}' \
+      --advertise-tags='{{ tailscale_tags | default(["tag:server"]) | join(",") }}' \
+      --hostname='{{ server_name }}'
