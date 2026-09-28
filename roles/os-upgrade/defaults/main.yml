@@ -1,0 +1,25 @@
+---
+# Upgrading the OS release of an existing node is opt-in, exactly like
+# k3s_upgrade. A role that runs as part of a routine play must never start a
+# release upgrade as a side effect of a template sync — only the shared
+# os-upgrade-playbook.yml sets this.
+os_upgrade: false
+
+# A release upgrade on a single-node cluster has nowhere to drain to: the whole
+# cluster is unavailable for the duration (typically 15-40 minutes), and the
+# only rollback is a restore from a snapshot taken beforehand. That is a
+# decision an operator makes deliberately, in a maintenance window — never
+# something a run should slide into. Pass it per run:
+#
+#   startup ansible os-upgrade --environment production --allow-single-node
+os_upgrade_allow_single_node: false
+
+# Seconds allowed for do-release-upgrade itself. It runs as an async job on the
+# node rather than a plain shell task, because the upgrader restarts sshd and
+# would otherwise cut the connection out from under Ansible mid-upgrade.
+os_upgrade_timeout: 3600
+
+# Seconds to wait for the node to come back after the post-upgrade reboot, and
+# then to report Ready to the cluster again.
+os_upgrade_reboot_timeout: 1800
+os_upgrade_ready_timeout: 600
