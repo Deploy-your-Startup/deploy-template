@@ -18,5 +18,6 @@ cert_manager_solver: "http01"
 
 # cert-manager is shared by every startup on the cluster, so a project's deploy
 # never re-applies it once it is installed. Set this to true for the one run
-# that is meant to move the cluster to cert_manager_chart_version.
+# that is meant to move the cluster to cert_manager_chart_version —
+# `startup ansible cert-manager-upgrade` does exactly that.
 cert_manager_upgrade: false
