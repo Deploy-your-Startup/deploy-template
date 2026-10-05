@@ -49,8 +49,9 @@
     msg: >-
       Cluster runs cert-manager {{ cert_manager_installed_version | default('(unknown)', true) }},
       this project pins {{ cert_manager_chart_version }}. Leaving it alone —
-      cert-manager is shared by every startup on this cluster. Re-run with
-      -e cert_manager_upgrade=true once you have checked the other projects.
+      cert-manager is shared by every startup on this cluster. Once you have
+      checked the other projects, run
+      `startup ansible cert-manager-upgrade --environment <env>`.
   when:
     - cert_manager_present
     - cert_manager_installed_version != cert_manager_chart_version
