@@ -1,6 +1,6 @@
 ---
 - name: "Require a Tailscale auth key"
-  assert:
+  ansible.builtin.assert:
     that:
       - tailscale_auth_key is defined
       - tailscale_auth_key | trim | length > 0
@@ -19,17 +19,17 @@
     tailscale_node_hostname: "{{ inventory_hostname }}"
   block:
     - name: "Read Tailscale state"
-      shell: tailscale status --json 2>/dev/null || true
+      ansible.builtin.shell: tailscale status --json 2>/dev/null || true
       register: tailscale_status_raw
       changed_when: false
 
     - name: "Decide whether this node still has to join"
-      set_fact:
+      ansible.builtin.set_fact:
         tailscale_running: >-
           {{ (tailscale_status_raw.stdout | default('{}', true) | from_json).BackendState | default('') == 'Running' }}
 
     - name: "Look for needrestart"
-      stat:
+      ansible.builtin.stat:
         path: /etc/needrestart/conf.d
       register: needrestart_conf_dir
 
@@ -38,29 +38,38 @@
       # cloud-init-hotplugd. needrestart (run by every apt install) restarts it
       # directly, and a directly started hotplugd blocks forever reading its
       # socket — apt hangs, and with it the play.
-      copy:
+      ansible.builtin.copy:
         dest: /etc/needrestart/conf.d/cloud-init-hotplugd.conf
         content: "$nrconf{override_rc}{qr(^cloud-init-hotplugd)} = 0;\n"
         mode: "0644"
       when: needrestart_conf_dir.stat.isdir | default(false)
 
     - name: "Install Tailscale"
-      shell: curl -fsSL https://tailscale.com/install.sh | sh
+      ansible.builtin.shell: curl -fsSL https://tailscale.com/install.sh | sh
       args:
         creates: /usr/bin/tailscale
 
+    - name: "Generate a join key on the controller"
+      ansible.builtin.include_role:
+        name: tailscale-auth
+        apply:
+          tags: infrastructure,tailscale
+      when:
+        - not tailscale_running
+        - not ansible_check_mode
+
     - name: "Bring Tailscale up"
-      shell: "{{ lookup('template', 'tailscale-up.sh.j2') }}"
+      ansible.builtin.shell: "{{ lookup('template', 'tailscale-up.sh.j2') }}"
       no_log: true
-      when: not tailscale_running
+      when: not tailscale_running and not ansible_check_mode
 
     - name: "Read this node's tailnet identity"
-      shell: tailscale status --json
+      ansible.builtin.shell: tailscale status --json
       register: tailscale_self_raw
       changed_when: false
 
     - name: "Set tailnet facts"
-      set_fact:
+      ansible.builtin.set_fact:
         tailscale_ipv4: "{{ (tailscale_self_raw.stdout | from_json).Self.TailscaleIPs | select('match', '^100\\.') | first }}"
         tailscale_dns_name: "{{ (tailscale_self_raw.stdout | from_json).Self.DNSName | regex_replace('\\.$', '') }}"
 
@@ -69,7 +78,7 @@
       # server name. If the tailnet still holds a device of that name — a server
       # that was deleted and recreated — the new one silently becomes
       # "<name>-1", and every tool would talk to the dead device instead.
-      fail:
+      ansible.builtin.fail:
         msg: |
           {{ inventory_hostname }} joined the tailnet as {{ tailscale_dns_name }}.
           The inventory expects the MagicDNS name {{ inventory_hostname }}, so this
@@ -81,5 +90,5 @@
       when: tailscale_dns_name.split('.')[0] != inventory_hostname
 
     - name: "Report tailnet address"
-      debug:
+      ansible.builtin.debug:
         msg: "{{ inventory_hostname }} is on the tailnet as {{ tailscale_dns_name }} ({{ tailscale_ipv4 }})"

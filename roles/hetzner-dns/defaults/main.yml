@@ -6,3 +6,6 @@
 # Set to false in group_vars/<env>.yml when you own the apex but want to
 # manage subdomains yourself / avoid catching every unconfigured host.
 dns_apex_wildcard: true
+
+# Optional explicit delegated zones per host, e.g. app.example.com: app.example.com.
+dns_zone_overrides: {}

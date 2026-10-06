@@ -1,1 +1,10 @@
+---
 firewall_name: "{{ project_name }}-firewall"
+
+# SSH is needed by local operators and changing GitHub-hosted runner addresses.
+# Restrict this when using a fixed runner or a private administrative network.
+firewall_ssh_source_ips: ["0.0.0.0/0", "::/0"]
+
+# The public Kubernetes API is closed by default. Add trusted admin CIDRs to
+# use a public kubeconfig; in-cluster Ansible deployments use SSH and localhost.
+firewall_api_source_ips: []

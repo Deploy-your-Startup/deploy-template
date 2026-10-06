@@ -16,6 +16,14 @@ spec:
       labels:
         app: postgres
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchFields:
+                  - key: metadata.name
+                    operator: In
+                    values: ["{{ postgres_selected_node }}"]
       containers:
       - image: "postgres:{{ postgres_version }}"
         name: postgres
@@ -33,6 +41,15 @@ spec:
               key: admin_password
         - name: PGDATA
           value: /var/lib/postgresql/data/pgdata
+        startupProbe:
+          exec:
+            command: [sh, -c, 'pg_isready -U "$POSTGRES_USER"']
+          periodSeconds: 5
+          failureThreshold: 60
+        readinessProbe:
+          exec:
+            command: [sh, -c, 'pg_isready -U "$POSTGRES_USER"']
+          periodSeconds: 5
         ports:
         - containerPort: 5432
           name: postgres

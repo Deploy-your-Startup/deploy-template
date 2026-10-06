@@ -5,7 +5,9 @@
     dest: "{{ cert_manager_tmp_dir }}/gateway-api-standard-install.yaml"
     mode: "0644"
   tags: cert-manager
-  when: cert_manager_install_cluster_wide | bool
+  when:
+    - cert_manager_install_cluster_wide | bool
+    - cert_manager_gateway_crd_count == 0
 
 - name: "Apply Gateway API standard-install manifest"
   kubernetes.core.k8s:
@@ -13,7 +15,9 @@
     src: "{{ cert_manager_tmp_dir }}/gateway-api-standard-install.yaml"
     wait: true
   tags: cert-manager
-  when: cert_manager_install_cluster_wide | bool
+  when:
+    - cert_manager_install_cluster_wide | bool
+    - cert_manager_gateway_crd_count == 0
 
 - name: "Apply cert-manager HelmChart resource for k3s Helm controller"
   kubernetes.core.k8s:
@@ -92,6 +96,8 @@
   kubernetes.core.k8s:
     state: present
     definition: "{{ lookup('template', 'hetzner-secret.yml') }}"
+  no_log: true
+  diff: false
   when: cert_manager_solver == "dns01"
   tags: cert-manager
 

@@ -1,0 +1,66 @@
+---
+- name: "Read the database volume's recorded node"
+  kubernetes.core.k8s_info:
+    kind: PersistentVolume
+    name: "{{ postgres_pv_name }}"
+  register: postgres_existing_volume
+
+- name: "Read database pod placement"
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ k8s_namespace | default('default') }}"
+    label_selectors:
+      - app=postgres
+  register: postgres_existing_pods
+
+- name: "Read cluster nodes"
+  kubernetes.core.k8s_info:
+    kind: Node
+  register: postgres_cluster_nodes
+
+- name: "Collect database storage placement"
+  ansible.builtin.set_fact:
+    postgres_pod_nodes: >-
+      {{ postgres_existing_pods.resources
+         | selectattr('spec.nodeName', 'defined')
+         | map(attribute='spec.nodeName') | unique | list }}
+    postgres_recorded_nodes: >-
+      {{ [(postgres_existing_volume.resources | first | default({}))
+          .get('metadata', {}).get('annotations', {})
+          .get('startup.deploy/storage-node', '')]
+         | reject('equalto', '') | list }}
+    postgres_available_nodes: "{{ postgres_cluster_nodes.resources | map(attribute='metadata.name') | list }}"
+
+- name: "Require an unambiguous database node"
+  ansible.builtin.assert:
+    that:
+      - postgres_pod_nodes | length <= 1
+      - postgres_recorded_nodes | length <= 1
+      - >-
+        postgres_storage_node | length > 0 or
+        postgres_recorded_nodes | length > 0 or
+        postgres_pod_nodes | length > 0 or
+        postgres_available_nodes | length == 1
+    fail_msg: >-
+      Local Postgres storage needs one identified data node. Set postgres_storage_node
+      to the Kubernetes node holding the existing data, or select a node explicitly
+      for a new multi-node installation. No database resources were changed.
+
+- name: "Select the database storage node"
+  ansible.builtin.set_fact:
+    postgres_selected_node: >-
+      {{ postgres_storage_node if postgres_storage_node | length > 0 else
+         (postgres_recorded_nodes | first if postgres_recorded_nodes | length > 0 else
+          (postgres_pod_nodes | first if postgres_pod_nodes | length > 0 else
+           postgres_available_nodes | first)) }}
+
+- name: "Refuse to move a database away from its data"
+  ansible.builtin.assert:
+    that:
+      - postgres_selected_node in postgres_available_nodes
+      - postgres_recorded_nodes | length == 0 or postgres_selected_node in postgres_recorded_nodes
+      - postgres_pod_nodes | length == 0 or postgres_selected_node in postgres_pod_nodes
+    fail_msg: >-
+      The selected Postgres node does not match the existing database placement,
+      or the node is absent. Restore the original node or migrate with a verified
+      backup and restore; changing postgres_storage_node does not move data.
