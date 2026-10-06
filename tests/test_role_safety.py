@@ -248,7 +248,23 @@ def test_deploy_action_uses_pipeable_cli_credentials_and_complete_exports(tmp_pa
     assert '--vault_password' not in combined
     assert 'ansible-vault view' not in combined
     assert 'startup secrets get-file --file ci_ssh_key | ssh-add -' in combined
-    assert 'k3s-upgrade-playbook.yml' in combined
+    # WHEN the actual export script runs against a real checkout,
+    # THEN every root playbook/config and role byte reaches the CI workspace.
+    export = next(step['run'] for step in action['runs']['steps']
+                  if step.get('name') == 'Export shared Ansible roles')
+    workspace = tmp_path / 'workspace'
+    workspace.mkdir()
+    export = export.replace('${{ github.workspace }}', str(workspace))
+    import os
+    subprocess.run(['bash', '-c', export], check=True,
+                   env={**os.environ, 'ACTION_REPO_ROOT': str(ROOT / '.github/actions/deploy')})
+    target = workspace / 'deployment/.shared-roles'
+    expected = [p for p in ROOT.glob('*playbook.yml')]
+    expected += [ROOT / p for p in ['ansible.cfg', 'requirements.yml', 'inventory.ini', 'inventory.hcloud.yml']]
+    expected += [p for p in (ROOT / 'roles').rglob('*') if p.is_file()
+                 and '__pycache__' not in p.parts and p.suffix != '.pyc']
+    for source in expected:
+        assert (target / source.relative_to(ROOT)).read_bytes() == source.read_bytes()
     join = (ROOT / '.github/actions/join-tailnet/read-credentials.sh').read_text()
     assert ' -p ' not in join
     subprocess.run(['bash', '-n'], input=join, text=True, check=True)
