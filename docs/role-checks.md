@@ -30,6 +30,9 @@ released in the CLI before users of a published installer can invoke it.
   Existing clusters retain their versions until an explicit upgrade. Gateway API
   CRDs already managed by the cluster are preserved; an absent Gateway API uses
   `v1.6.1`, and a partial installation stops before overwriting any CRDs.
+- Optional Hetzner charts are pinned: cloud controller `1.39.0`, CSI `2.23.0`,
+  and cert-manager webhook `0.9.0`. They require provider-specific integration
+  verification when enabled.
 - Kubernetes Secrets are applied with task output and diffs censored. k3s
   installation tokens are passed through the environment in censored tasks.
 - Tailscale OAuth secrets are exchanged on the controller. New nodes receive
