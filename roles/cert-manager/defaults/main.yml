@@ -24,3 +24,5 @@ cert_manager_upgrade: false
 
 # Optional ACME contact address owned by the project operator.
 cert_manager_acme_email: ""
+
+cert_manager_webhook_chart_version: "0.9.0"

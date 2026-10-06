@@ -220,3 +220,15 @@ def test_cert_manager_leaves_cluster_owned_gateway_crds_alone(filename):
         for existing, expected in [(0, True), (3, False)]:
             variables = {"cert_manager_install_cluster_wide": True, "cert_manager_gateway_crd_count": existing}
             assert all(templar(variables).evaluate_expression(trust_as_template(e)) for e in task["when"]) is expected
+
+
+@pytest.mark.parametrize('role,template', [
+    ('hetzner-cloud-controller-manager', 'helm-chart-config.yml'),
+    ('hetzner-csi-provider', 'helm-chart.yml'),
+    ('cert-manager', 'webhook-helmchart.yaml.j2'),
+])
+def test_optional_charts_render_an_explicit_published_version(role, template):
+    # GIVEN role defaults, WHEN a real HelmChart is rendered, THEN installs are pinned.
+    variables = load(f'roles/{role}/defaults/main.yml')
+    manifest = yaml.safe_load(render(f'roles/{role}/templates/{template}', variables))
+    assert manifest['spec']['version']
