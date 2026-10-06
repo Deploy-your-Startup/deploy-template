@@ -232,3 +232,23 @@ def test_optional_charts_render_an_explicit_published_version(role, template):
     variables = load(f'roles/{role}/defaults/main.yml')
     manifest = yaml.safe_load(render(f'roles/{role}/templates/{template}', variables))
     assert manifest['spec']['version']
+
+
+def test_deploy_action_uses_pipeable_cli_credentials_and_complete_exports(tmp_path):
+    # GIVEN the actual composite action, WHEN its shell steps are parsed,
+    # THEN CI keeps Vault credentials out of argv and exports the full runtime.
+    import subprocess
+    action = load('.github/actions/deploy/action.yml')
+    scripts = [step['run'] for step in action['runs']['steps'] if 'run' in step]
+    for index, script in enumerate(scripts):
+        path = tmp_path / f'step-{index}.sh'
+        path.write_text(script)
+        subprocess.run(['bash', '-n', str(path)], check=True)
+    combined = '\n'.join(scripts)
+    assert '--vault_password' not in combined
+    assert 'ansible-vault view' not in combined
+    assert 'startup secrets get-file --file ci_ssh_key | ssh-add -' in combined
+    assert 'k3s-upgrade-playbook.yml' in combined
+    join = (ROOT / '.github/actions/join-tailnet/read-credentials.sh').read_text()
+    assert ' -p ' not in join
+    subprocess.run(['bash', '-n'], input=join, text=True, check=True)
