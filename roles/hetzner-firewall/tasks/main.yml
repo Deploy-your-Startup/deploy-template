@@ -17,7 +17,7 @@
   ansible.builtin.assert:
     that:
       - (network_mode | default('public')) in ['public', 'private']
-    fail_msg: "network_mode must be 'public' or 'private', got '{{ network_mode }}'"
+    fail_msg: "network_mode must be 'public' or 'private', got '{{ network_mode | default('public') }}'"
 
 - name: "Refuse a load balancer in private network mode"
   # A Hetzner load balancer is a public endpoint of its own. Cloud firewalls do

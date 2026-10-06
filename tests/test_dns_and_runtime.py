@@ -80,3 +80,11 @@ def test_kubernetes_api_is_closed_unless_admin_cidrs_are_supplied(admin_cidrs, p
     assert [r['port'] for r in rules] == ports
     if admin_cidrs:
         assert rules[-1]['source_ips'] == admin_cidrs
+
+
+def test_firewall_default_mode_can_render_the_failure_message():
+    # GIVEN a legacy project without network_mode, WHEN Ansible renders its guard,
+    # THEN the normal public default does not fail before the assertion runs.
+    task = yaml.safe_load((ROOT / 'roles/hetzner-firewall/tasks/main.yml').read_text())[0]
+    engine = Templar(loader=DataLoader(), variables={})
+    assert 'public' in engine.template(trust_as_template(task['ansible.builtin.assert']['fail_msg']))
