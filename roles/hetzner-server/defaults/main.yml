@@ -40,3 +40,6 @@ hetzner_os_image: ubuntu-24.04
 # Pass them per run (`-e allow_server_resize=true`), not in group_vars.
 allow_master_teardown: false
 allow_server_resize: false
+
+# Required for any worker deletion, including failed provisioning cleanup.
+allow_worker_teardown: false

@@ -3,7 +3,7 @@
 # HETZNER FIREWALL CONFIGURATION
 # =============================================================================
 # Einfache Regeln:
-# - SSH, HTTP, HTTPS, Kubernetes API von überall (network_mode: public)
+# - HTTP/HTTPS public; SSH/API use separately configured administration CIDRs
 # - Alles andere nur aus dem privaten Netzwerk
 #
 # network_mode: private schließt die öffentlichen Ports. Erreichbar ist der
@@ -14,7 +14,7 @@
 # =============================================================================
 
 - name: "Check the network mode"
-  assert:
+  ansible.builtin.assert:
     that:
       - (network_mode | default('public')) in ['public', 'private']
     fail_msg: "network_mode must be 'public' or 'private', got '{{ network_mode }}'"
@@ -23,7 +23,7 @@
   # A Hetzner load balancer is a public endpoint of its own. Cloud firewalls do
   # not apply to it, so it would keep the site reachable from the internet no
   # matter what the rules below say.
-  assert:
+  ansible.builtin.assert:
     that:
       - not (create_load_balancer | default(false) | bool)
     fail_msg: >-
@@ -37,7 +37,7 @@
   register: hcloud_servers
 
 - name: "Extract server IPs"
-  set_fact:
+  ansible.builtin.set_fact:
     cluster_server_ips: >-
       {{ hcloud_servers.hcloud_server_info 
          | selectattr('name', 'match', project_name + '-.*') 
@@ -53,38 +53,33 @@
       {{ (firewall_private_rules if (network_mode | default('public')) == 'private' else firewall_public_rules)
          + firewall_cluster_rules }}
   vars:
-    firewall_public_rules:
-      - direction: in
-        protocol: tcp
-        port: "22"
-        source_ips:
-          - 0.0.0.0/0
-          - ::/0
-        description: "SSH"
-
+    firewall_public_rules: >-
+      {{ firewall_web_rules
+         + (firewall_ssh_rules if firewall_ssh_source_ips | length > 0 else [])
+         + (firewall_api_rules if firewall_api_source_ips | length > 0 else []) }}
+    firewall_web_rules:
       - direction: in
         protocol: tcp
         port: "80"
-        source_ips:
-          - 0.0.0.0/0
-          - ::/0
+        source_ips: ["0.0.0.0/0", "::/0"]
         description: "HTTP"
-
       - direction: in
         protocol: tcp
         port: "443"
-        source_ips:
-          - 0.0.0.0/0
-          - ::/0
+        source_ips: ["0.0.0.0/0", "::/0"]
         description: "HTTPS"
-
+    firewall_ssh_rules:
+      - direction: in
+        protocol: tcp
+        port: "22"
+        source_ips: "{{ firewall_ssh_source_ips }}"
+        description: "SSH administration"
+    firewall_api_rules:
       - direction: in
         protocol: tcp
         port: "6443"
-        source_ips:
-          - 0.0.0.0/0
-          - ::/0
-        description: "Kubernetes API"
+        source_ips: "{{ firewall_api_source_ips }}"
+        description: "Kubernetes API administration"
 
     firewall_private_rules:
       - direction: in
@@ -131,7 +126,7 @@
         description: "All UDP from cluster nodes"
 
 - name: "Get server names for firewall"
-  set_fact:
+  ansible.builtin.set_fact:
     firewall_servers: >-
       {{ groups['all'] 
          | select('match', project_name + '-.*') 

@@ -1,11 +1,13 @@
 - name: "deploy hetzner-csi-provider secrets"
-  k8s:
+  kubernetes.core.k8s:
     state: present
     definition: "{{lookup('template', 'secrets.yml') }}"
+  no_log: true
+  diff: false
   tags: hetzner-cloud-controller-manager
 
 - name: "Apply HelmChartConfig"
-  k8s:
+  kubernetes.core.k8s:
     state: present
     definition: "{{ lookup('template', 'helm-chart-config.yml') }}"
-    tags: hetzner-cloud-controller-manager
+  tags: hetzner-cloud-controller-manager

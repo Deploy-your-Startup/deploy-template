@@ -17,6 +17,6 @@
   tags: infrastructure
 
 - name: Store network name for other roles
-  set_fact:
+  ansible.builtin.set_fact:
     hetzner_private_network_name: "{{ network_name }}"
   tags: infrastructure

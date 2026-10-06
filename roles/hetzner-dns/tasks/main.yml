@@ -1,43 +1,27 @@
 ---
 - name: "Set domains list"
-  set_fact:
+  ansible.builtin.set_fact:
     domains: "{{ [base_domain] + additional_domains }}"
   tags: infrastructure
 
-- name: "Extract zone names from domains (strip subdomain prefixes)"
-  set_fact:
-    dns_zones: "{{ domains | map('regex_replace', '^.*\\.([^.]+\\.[^.]+)$', '\\1') | unique | list }}"
-  tags: infrastructure
-
-- name: "Build subdomain records list"
-  set_fact:
-    subdomain_records: >-
-      {{
-        domains
-        | select('match', '^.+\..+\..+$')
-        | map('regex_replace', '^(.+)\.([^.]+\.[^.]+)$', '\\1,\\2')
-        | list
-      }}
-  tags: infrastructure
-
-- name: "Classify apex domains (host == its own zone, e.g. example.com)"
-  # Apex = exactly two labels. Subdomains (app.example.com) are handled by
-  # the per-subdomain task below and must NOT get @ or * records, otherwise
-  # they would hijack the whole shared root zone.
-  set_fact:
-    apex_domains: "{{ domains | select('match', '^[^.]+\\.[^.]+$') | list }}"
-  tags: infrastructure
-
 - name: "Look at the zones this project already holds"
-  # Hetzner checks each zone's delegation itself and reports the result, which
-  # is what tells us whether a zone is actually in use. Merely holding a zone
-  # proves nothing: the previous version asked the project which zones it
-  # contains — right after creating them — so every zone counted as "ours", the
-  # "not owned by this project" warning could never fire, and a domain hosted
-  # elsewhere had its records written into a zone nobody ever queries. The run
-  # went green and the site stayed dark.
   hetzner.hcloud.zone_info:
   register: existing_zones_info
+  tags: infrastructure
+
+- name: "Resolve domain zones and record names"
+  ansible.builtin.set_fact:
+    dns_records: >-
+      {{ domains | startup_dns_records(
+           existing_zones_info.hcloud_zone_info | map(attribute='name') | list,
+           dns_zone_overrides) }}
+  tags: infrastructure
+
+- name: "Group records by zone and apex ownership"
+  ansible.builtin.set_fact:
+    dns_zones: "{{ dns_records | map(attribute='zone') | unique | list }}"
+    apex_domains: "{{ dns_records | selectattr('name', 'equalto', '@') | map(attribute='domain') | list }}"
+    subdomain_records: "{{ dns_records | rejectattr('name', 'equalto', '@') | list }}"
   tags: infrastructure
 
 - name: "Separate externally delegated zones from the rest"
@@ -45,7 +29,7 @@
   # has not been checked yet and reports no verdict, and treating that as
   # external would break the normal case: a correctly delegated domain would
   # lose its DNS records on the very run that sets it up.
-  set_fact:
+  ansible.builtin.set_fact:
     external_zones: >-
       {{ existing_zones_info.hcloud_zone_info
          | selectattr('authoritative_nameservers.delegation_status',
@@ -57,7 +41,7 @@
   tags: infrastructure
 
 - name: "Set the zones this role may manage"
-  set_fact:
+  ansible.builtin.set_fact:
     managed_zones: "{{ dns_zones | difference(external_zones) }}"
   tags: infrastructure
 
@@ -82,7 +66,7 @@
   # Intersected with managed_zones on purpose: an earlier run may have left a
   # zone for an externally hosted domain behind, and writing records into it
   # would be just as invisible as before.
-  set_fact:
+  ansible.builtin.set_fact:
     owned_zones: >-
       {{ owned_zones_info.hcloud_zone_info
          | map(attribute='name') | list
@@ -90,12 +74,12 @@
   tags: infrastructure
 
 - name: "Show owned zones"
-  debug:
+  ansible.builtin.debug:
     msg: "Owned zones: {{ owned_zones }} (requested: {{ dns_zones }})"
   tags: infrastructure
 
 - name: "Report domains whose DNS must be set at another provider"
-  debug:
+  ansible.builtin.debug:
     msg: >-
       DNS for '{{ item }}' is delegated to
       {{ existing_zones_info.hcloud_zone_info
@@ -138,8 +122,8 @@
 
 - name: "Add DNS records for subdomains (e.g. www)"
   hetzner.hcloud.zone_rrset:
-    zone: "{{ item.split(',')[1] }}"
-    name: "{{ item.split(',')[0] }}"
+    zone: "{{ item.zone }}"
+    name: "{{ item.name }}"
     type: A
     ttl: 300
     records:
@@ -148,7 +132,7 @@
   loop: "{{ subdomain_records }}"
   when:
     - subdomain_records | length > 0
-    - item.split(',')[1] in owned_zones
+    - item.zone in owned_zones
   tags: infrastructure
 
 - name: "Add extra DNS records per zone"
@@ -168,7 +152,7 @@
   tags: infrastructure
 
 - name: "Warn about zones not owned by this project"
-  debug:
+  ansible.builtin.debug:
     msg: "WARNING: Zone '{{ item }}' exists globally but is not owned by this project. Delete it from dns.hetzner.com first."
   loop: "{{ dns_zones | difference(owned_zones) }}"
   when: dns_zones | difference(owned_zones) | length > 0
@@ -182,7 +166,7 @@
   # whose DNS lives elsewhere, nothing above would mention the one record
   # somebody still has to create by hand — the run looks complete and the site
   # stays unreachable.
-  debug:
+  ansible.builtin.debug:
     msg: >-
       These hosts must resolve to {{ loadbalancer_ip }}:
       {{ domains | join(', ') }}.

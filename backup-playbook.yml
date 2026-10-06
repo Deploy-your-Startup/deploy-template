@@ -1,6 +1,7 @@
 ---
 - hosts: hcloud_type_master
   gather_facts: false
+  run_once: true
   vars:
     app_name: "{{ project_name }}"
     backup_env: "{{ backup_environment | default('production', true) }}"
@@ -26,11 +27,12 @@
       file:
         path: "{{ remote_backup_dir }}"
         state: directory
-        mode: "0755"
+        mode: "0700"
 
     - name: Create database dump from postgres deployment
       shell: |
         set -euo pipefail
+        umask 077
         mkdir -p "{{ remote_backup_dir }}"
         APP_DB_NAME="$(kubectl get secret backend -n "{{ k8s_namespace | default('default') }}" -o jsonpath='{.data.backend_db_name}' | base64 -d)"
         kubectl exec -n "{{ k8s_namespace | default('default') }}" deploy/postgres -- sh -c "pg_dump -U \"\$POSTGRES_USER\" -d \"$APP_DB_NAME\" --no-owner --no-acl" | gzip -c > "{{ remote_backup_dir }}/{{ db_backup_filename }}"
@@ -40,6 +42,7 @@
     - name: Archive media from backend deployment
       shell: |
         set -euo pipefail
+        umask 077
         mkdir -p "{{ remote_backup_dir }}"
         kubectl exec -n "{{ k8s_namespace | default('default') }}" deploy/backend -- tar -C /app -czf - media > "{{ remote_backup_dir }}/{{ media_backup_filename }}"
       args:
@@ -48,6 +51,7 @@
     - name: Create Django dumpdata backup from backend deployment
       shell: |
         set -euo pipefail
+        umask 077
         mkdir -p "{{ remote_backup_dir }}"
         kubectl exec -n "{{ k8s_namespace | default('default') }}" deploy/backend -- sh -c "cd /app && uv run python manage.py dumpdata --natural-foreign --natural-primary --settings project.settings" | gzip -c > "{{ remote_backup_dir }}/{{ django_backup_filename }}"
       args:
@@ -56,6 +60,7 @@
     - name: Check uncompressed database dump size
       shell: |
         set -euo pipefail
+        umask 077
         gzip -dc "{{ remote_backup_dir }}/{{ db_backup_filename }}" | wc -c
       args:
         executable: /bin/bash
@@ -65,6 +70,7 @@
     - name: Check uncompressed Django backup size
       shell: |
         set -euo pipefail
+        umask 077
         gzip -dc "{{ remote_backup_dir }}/{{ django_backup_filename }}" | wc -c
       args:
         executable: /bin/bash
@@ -116,7 +122,7 @@
       file:
         path: "{{ local_backup_dir }}"
         state: directory
-        mode: "0755"
+        mode: "0700"
 
     - name: Download database backup
       fetch:
@@ -135,6 +141,16 @@
         src: "{{ remote_backup_dir }}/{{ django_backup_filename }}"
         dest: "{{ local_backup_dir }}/{{ django_backup_filename }}"
         flat: true
+
+    - name: Restrict permissions on downloaded backups
+      delegate_to: localhost
+      ansible.builtin.file:
+        path: "{{ item }}"
+        mode: "0600"
+      loop:
+        - "{{ local_db_backup_file }}"
+        - "{{ local_media_backup_file }}"
+        - "{{ local_django_backup_file }}"
 
     - name: Cleanup remote backup directory
       file:
