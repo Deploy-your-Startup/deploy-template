@@ -88,3 +88,17 @@ def test_firewall_default_mode_can_render_the_failure_message():
     task = yaml.safe_load((ROOT / 'roles/hetzner-firewall/tasks/main.yml').read_text())[0]
     engine = Templar(loader=DataLoader(), variables={})
     assert 'public' in engine.template(trust_as_template(task['ansible.builtin.assert']['fail_msg']))
+
+
+def test_repeated_python_role_resets_the_high_precedence_interpreter_fact():
+    # GIVEN a previously prepared client, WHEN the same role is imported again,
+    # THEN apt/pip use distribution Python and later k8s modules use the venv.
+    tasks = yaml.safe_load((ROOT / 'roles/python/tasks/main.yml').read_text())
+    engine = Templar(loader=DataLoader(), variables={'kubernetes_python_venv': '/opt/startup-ansible'})
+    interpreter = '/opt/startup-ansible/bin/python'
+    for task in tasks:
+        if 'ansible.builtin.set_fact' in task:
+            interpreter = engine.template(trust_as_template(task['ansible.builtin.set_fact']['ansible_python_interpreter']))
+        if 'ansible.builtin.pip' in task or 'ansible.builtin.apt' in task:
+            assert interpreter == '/usr/bin/python3'
+    assert interpreter == '/opt/startup-ansible/bin/python'

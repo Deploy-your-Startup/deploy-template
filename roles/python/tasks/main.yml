@@ -1,4 +1,10 @@
 ---
+- name: "Use distribution Python while preparing the isolated client"
+  # set_fact outranks task vars. Reset the interpreter on repeated role imports
+  # before apt/pip run, then switch back to the isolated client at the end.
+  ansible.builtin.set_fact:
+    ansible_python_interpreter: /usr/bin/python3
+
 - name: "Install Python virtual environment support"
   ansible.builtin.apt:
     name:
