@@ -66,6 +66,26 @@ released in the CLI before users of a published installer can invoke it.
 - Set `cert_manager_acme_email` to an operator-owned ACME contact address if
   contact notifications are wanted. No personal maintainer address is supplied.
 
+## Pinning a project
+
+With the matching CLI revision installed, resolve a reviewed owner-repository ref:
+
+```sh
+startup ansible pin --working-directory deployment --version <reviewed-ref>
+```
+
+Commit `shared-roles.ref` and `shared-roles.sha256` with the pinned CLI dependency
+and lock file. Subsequent defaults use that immutable commit. CI exports must
+match the checksum of role files and runtime configuration, even without Git
+metadata; a mismatch fails before role execution. Updating `main` alone does not
+update a pinned project's roles. Explicitly update and review both pin files.
+The first Git-backed setup records the resolved commit automatically.
+
+CI passes Vault credentials in the scoped `STARTUP_VAULT_PASSWORD` environment.
+The CLI streams the deploy key directly to `ssh-add`; no password enters argv.
+These pinning and credential commands require the corresponding CLI change;
+older published installers do not implement them.
+
 ## Verification before release
 
 After local checks, exercise a fresh single-node project in an authorized test

@@ -28,7 +28,7 @@ runs:
       working-directory: ./deployment
       env:
         ENVIRONMENT: ${{ inputs.environment }}
-        VAULT_PASSWORD: ${{ inputs.vault_password }}
+        STARTUP_VAULT_PASSWORD: ${{ inputs.vault_password }}
       run: bash "${{ github.action_path }}/read-credentials.sh"
 
     - name: "Connect to Tailscale"
