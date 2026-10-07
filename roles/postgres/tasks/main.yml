@@ -1,29 +1,39 @@
+---
+- name: "Check local database storage placement"
+  ansible.builtin.include_tasks:
+    file: preflight.yml
+    apply:
+      tags: postgres
+  tags: postgres
+
 - name: "apply postgres secrets"
-  k8s:
+  kubernetes.core.k8s:
     state: present
     definition: "{{ lookup('template', 'secrets.yml') }}"
+  no_log: true
+  diff: false
   tags: postgres
 
 - name: "apply postgres service"
-  k8s:
+  kubernetes.core.k8s:
     state: present
     definition: "{{ lookup('template', 'service.yml') }}"
   tags: postgres
 
 - name: "apply postgres persistent volume claim"
-  k8s:
+  kubernetes.core.k8s:
     state: present
     definition: "{{ lookup('template', 'persistent-volume-claim.yml') }}"
   tags: postgres
 
 - name: "apply postgres persistent volume"
-  k8s:
+  kubernetes.core.k8s:
     state: present
     definition: "{{ lookup('template', 'persistent-volume.yml') }}"
   tags: postgres
 
 - name: "apply postgres deployment"
-  k8s:
+  kubernetes.core.k8s:
     state: present
     definition: "{{ lookup('template', 'deployment.yml') }}"
   tags: postgres

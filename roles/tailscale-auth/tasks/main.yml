@@ -1,0 +1,60 @@
+---
+# Runs on the controller: long-lived OAuth credentials never reach a node.
+- name: "Prepare a Tailscale join key"
+  no_log: true
+  block:
+    - name: "Validate the Tailscale credential"
+      ansible.builtin.assert:
+        that:
+          - tailscale_auth_key is defined
+          - (tailscale_auth_key | trim).startswith('tskey-client-') or (tailscale_auth_key | trim).startswith('tskey-auth-')
+        quiet: true
+        fail_msg: "Provide a Tailscale OAuth client secret or auth key."
+
+    - name: "Use a supplied auth key"
+      ansible.builtin.set_fact:
+        tailscale_join_key: "{{ tailscale_auth_key | trim }}"
+      when: (tailscale_auth_key | trim).startswith('tskey-auth-')
+
+    - name: "Exchange the OAuth secret for an access token"
+      ansible.builtin.uri:
+        url: https://api.tailscale.com/api/v2/oauth/token
+        method: POST
+        body_format: form-urlencoded
+        body:
+          client_secret: "{{ tailscale_auth_key | trim }}"
+          grant_type: client_credentials
+        return_content: true
+        status_code: 200
+      delegate_to: localhost
+      become: false
+      register: tailscale_oauth_response
+      when: (tailscale_auth_key | trim).startswith('tskey-client-')
+
+    - name: "Create a single-use join key valid for ten minutes"
+      ansible.builtin.uri:
+        url: https://api.tailscale.com/api/v2/tailnet/-/keys
+        method: POST
+        headers:
+          Authorization: "Bearer {{ tailscale_oauth_response.json.access_token }}"
+        body_format: json
+        body:
+          capabilities:
+            devices:
+              create:
+                reusable: false
+                ephemeral: false
+                preauthorized: true
+                tags: "{{ tailscale_tags | default(['tag:server']) }}"
+          expirySeconds: 600
+        return_content: true
+        status_code: 200
+      delegate_to: localhost
+      become: false
+      register: tailscale_join_response
+      when: (tailscale_auth_key | trim).startswith('tskey-client-')
+
+    - name: "Use the generated join key"
+      ansible.builtin.set_fact:
+        tailscale_join_key: "{{ tailscale_join_response.json.key }}"
+      when: (tailscale_auth_key | trim).startswith('tskey-client-')

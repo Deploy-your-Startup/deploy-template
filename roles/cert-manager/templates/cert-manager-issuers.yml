@@ -7,8 +7,9 @@ spec:
   acme:
     # The ACME server URL
     server: https://acme-v02.api.letsencrypt.org/directory
-    # Email address used for ACME registration
-    email: hallo@philipp-lein.de
+{% if cert_manager_acme_email | length > 0 %}
+    email: "{{ cert_manager_acme_email }}"
+{% endif %}
     # Name of a secret used to store the ACME account private key
     privateKeySecretRef:
       name: letsencrypt-prod

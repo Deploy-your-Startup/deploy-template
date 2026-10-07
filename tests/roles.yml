@@ -1,0 +1,34 @@
+---
+- name: Validate every shared role
+  hosts: test
+  gather_facts: false
+  roles:
+    - cert-manager
+    - docker-secrets
+    - hetzner-cloud-controller-manager
+    - hetzner-csi-provider
+    - hetzner-dns
+    - hetzner-firewall
+    - hetzner-loadbalancer
+    - hetzner-network
+    - hetzner-server
+    - ingress
+    - k3s
+    - kubernetes-client
+    - postgres
+    - prepare-kubeconfig
+    - project-namespace
+    - python
+    - tailscale
+    - tailscale-auth
+  tasks:
+    - name: Validate roles/cert-manager/tasks/install_with_helm.yml
+      ansible.builtin.import_tasks: ../roles/cert-manager/tasks/install_with_helm.yml
+    - name: Validate roles/cert-manager/tasks/install_with_k3s_helm.yml
+      ansible.builtin.import_tasks: ../roles/cert-manager/tasks/install_with_k3s_helm.yml
+    - name: Validate roles/cert-manager/tasks/preflight.yml
+      ansible.builtin.import_tasks: ../roles/cert-manager/tasks/preflight.yml
+    - name: Validate roles/hetzner-server/tasks/mint-join-key.yml
+      ansible.builtin.import_tasks: ../roles/hetzner-server/tasks/mint-join-key.yml
+    - name: Validate roles/postgres/tasks/preflight.yml
+      ansible.builtin.import_tasks: ../roles/postgres/tasks/preflight.yml

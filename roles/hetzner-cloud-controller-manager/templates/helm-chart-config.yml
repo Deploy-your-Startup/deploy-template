@@ -6,4 +6,5 @@ metadata:
 spec:
   repo: https://charts.hetzner.cloud
   chart: hcloud-cloud-controller-manager
+  version: "{{ hcloud_ccm_chart_version }}"
   targetNamespace: kube-system

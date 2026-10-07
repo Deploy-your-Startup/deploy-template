@@ -1,0 +1,28 @@
+name: Check Ansible roles
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-roles-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: Install pinned check dependencies
+        run: uv sync --locked
+      - name: Validate role structure
+        run: ./make.sh lint
+      - name: Check Ansible syntax and safety regressions
+        run: ./make.sh test

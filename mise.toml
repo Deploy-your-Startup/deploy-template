@@ -1,3 +1,11 @@
+[tasks.lint]
+description = "Validate role YAML and task structure without changes"
+run = "./make.sh lint"
+
+[tasks.test]
+description = "Run role safety regression tests"
+run = "./make.sh test"
+
 [tasks.check]
-description = "Check repository files for whitespace errors"
-run = "git diff --check"
+description = "Check role structure, regressions and whitespace"
+run = "./make.sh check"

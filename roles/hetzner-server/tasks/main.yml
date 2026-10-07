@@ -1,6 +1,6 @@
 ---
 - name: "Add public ssh keys"
-  hcloud_ssh_key:
+  hetzner.hcloud.ssh_key:
     name: "{{ item.name }}"
     public_key: "{{ item.key }}"
     state: present
@@ -11,7 +11,7 @@
   # `<node_type>_server_type` wins over the generic `server_type`, so masters
   # and workers can differ in size or architecture. The role is imported once
   # per node type, so this resolves separately for each pass.
-  set_fact:
+  ansible.builtin.set_fact:
     node_server_type: "{{ lookup('vars', node_type ~ '_server_type', default=server_type) }}"
   tags: infrastructure
 
@@ -35,7 +35,7 @@
   tags: infrastructure
 
 - name: "Refuse to change the type of a running {{ node_type }}"
-  fail:
+  ansible.builtin.fail:
     msg: |
       {{ mismatched_nodes | map(attribute='name') | join(', ') }} would be
       changed to {{ node_server_type }}:
@@ -69,8 +69,28 @@
     - not (allow_server_resize | default(false) | bool)
   tags: infrastructure
 
+- name: "Initialize per-server Tailscale join keys"
+  ansible.builtin.set_fact:
+    tailscale_boot_keys: {}
+  no_log: true
+  tags: infrastructure
+
+- name: "Generate join keys only for new private servers"
+  ansible.builtin.include_tasks:
+    file: mint-join-key.yml
+    apply:
+      tags: infrastructure
+  loop: "{{ range(0, node_count | int) | list }}"
+  vars:
+    tailscale_new_server_name: "{{ project_name }}-{{ node_type }}-{{ item }}"
+  when:
+    - tailscale_enabled | default((network_mode | default('public')) == 'private') | bool
+    - tailscale_new_server_name not in (preflight_nodes.hcloud_server_info | map(attribute='name') | list)
+    - not ansible_check_mode
+  tags: infrastructure
+
 - name: "Create Hetzner Server"
-  hcloud_server:
+  hetzner.hcloud.server:
     location: "{{ location }}"
     force: true
     # network=private is what switches the inventory to the tailnet address
@@ -87,7 +107,7 @@
     # untouched; they join via the tailscale role instead. A new private server
     # has to be on the tailnet before Ansible can reach it at all.
     user_data: >-
-      {{ lookup('template', 'cloud-init-tailscale.yml.j2') if tailscale_on_boot | bool else omit }}
+      {{ lookup('template', 'cloud-init-tailscale.yml.j2') if (tailscale_on_boot | bool and server_name in tailscale_boot_keys) else omit }}
     # Attach at creation, not afterwards. A server attached to a network only
     # after it has booted does not get the interface configured until it is
     # rebooted — k3s then finds no 10.x address and silently joins on the
@@ -101,6 +121,8 @@
     server_name: "{{ project_name }}-{{ node_type }}-{{ item }}"
     tailscale_on_boot: >-
       {{ tailscale_enabled | default((network_mode | default('public')) == 'private') }}
+  no_log: "{{ tailscale_on_boot | bool }}"
+  diff: false
   register: created_servers
   tags: infrastructure
 
@@ -113,7 +135,7 @@
   tags: infrastructure
 
 - name: "Refresh inventory after adding machines"
-  meta: refresh_inventory
+  ansible.builtin.meta: refresh_inventory
   tags: infrastructure
 
 # -----------------------------------------------------------------------------
@@ -131,7 +153,7 @@
   tags: infrastructure
 
 - name: "Determine surplus nodes"
-  set_fact:
+  ansible.builtin.set_fact:
     surplus_nodes: >-
       {{ existing_nodes.hcloud_server_info
          | map(attribute='name')
@@ -149,7 +171,7 @@
   # Removing a master means removing an etcd member. That is a deliberate,
   # quorum-sensitive operation, not something a lowered master_count should
   # trigger as a side effect.
-  fail:
+  ansible.builtin.fail:
     msg: |
       master_count={{ node_count }} would remove: {{ surplus_nodes | join(', ') }}
 
@@ -163,26 +185,61 @@
     - not (allow_master_teardown | default(false) | bool)
   tags: infrastructure
 
-- name: "Drain and remove surplus nodes from the cluster"
-  # Best effort: if the cluster is unreachable we still want the servers gone,
-  # otherwise a half-provisioned project could never be scaled back down.
-  #
-  # connection: ssh is not redundant. This role runs in the provisioning play,
-  # which is `connection: local`, and a play-level connection wins over
-  # delegate_to — without this the kubectl calls run on the operator's machine
-  # and fail with "k3s: command not found".
-  shell: |
-    k3s kubectl drain {{ item }} --ignore-daemonsets --delete-emptydir-data --force --timeout=300s || true
-    k3s kubectl delete node {{ item }} --ignore-not-found=true
+- name: "Require explicit authorization to remove workers"
+  ansible.builtin.assert:
+    that:
+      - allow_worker_teardown | default(false) | bool
+    fail_msg: >-
+      worker_count={{ node_count }} would delete {{ surplus_nodes | join(', ') }}.
+      Review the nodes and their data, then re-run with
+      `startup ansible infrastructure --allow-worker-teardown` if removal is intended.
+  when:
+    - node_type == 'worker'
+    - surplus_nodes | length > 0
+  tags: infrastructure
+
+- name: "Require the first master before removing cluster nodes"
+  ansible.builtin.assert:
+    that:
+      - (project_name ~ '-master-0') in hostvars
+    fail_msg: >-
+      The first master is unavailable. No surplus server was deleted.
+      Restore access to the cluster before scaling down.
+  when: surplus_nodes | length > 0
+  tags: infrastructure
+
+- name: "Drain surplus nodes before deleting servers"
+  ansible.builtin.command:
+    argv:
+      - k3s
+      - kubectl
+      - drain
+      - "{{ item }}"
+      - --ignore-daemonsets
+      - --timeout=300s
   delegate_to: "{{ project_name }}-master-0"
   connection: ssh
   loop: "{{ surplus_nodes }}"
-  when: (project_name ~ '-master-0') in hostvars
+  changed_when: true
+  tags: infrastructure
+
+- name: "Remove drained nodes from the cluster"
+  ansible.builtin.command:
+    argv:
+      - k3s
+      - kubectl
+      - delete
+      - node
+      - "{{ item }}"
+      - --ignore-not-found=true
+  delegate_to: "{{ project_name }}-master-0"
+  connection: ssh
+  loop: "{{ surplus_nodes }}"
   changed_when: true
   tags: infrastructure
 
 - name: "Delete surplus servers"
-  hcloud_server:
+  hetzner.hcloud.server:
     name: "{{ item }}"
     state: absent
   loop: "{{ surplus_nodes }}"
@@ -192,5 +249,5 @@
   # No `when:` — meta tasks silently ignore conditionals (Ansible only warns),
   # so guarding this would be a lie. Refreshing unconditionally is correct
   # anyway; it is what the create path above already does.
-  meta: refresh_inventory
+  ansible.builtin.meta: refresh_inventory
   tags: infrastructure
