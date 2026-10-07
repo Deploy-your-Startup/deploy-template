@@ -1,6 +1,7 @@
 ---
 - hosts: hcloud_type_master
   gather_facts: false
+  run_once: true
   vars:
     app_name: "{{ project_name }}"
     restore_env: "{{ restore_environment | default('production', true) }}"
@@ -41,20 +42,20 @@
           file:
             path: "{{ remote_restore_dir }}"
             state: directory
-            mode: "0755"
+            mode: "0700"
 
         - name: Upload database dump to restore host
           copy:
             src: "{{ local_db_backup_file }}"
             dest: "{{ remote_db_backup_file }}"
-            mode: "0644"
+            mode: "0600"
           when: should_restore_db
 
         - name: Upload media archive to restore host
           copy:
             src: "{{ local_media_backup_file }}"
             dest: "{{ remote_media_backup_file }}"
-            mode: "0644"
+            mode: "0600"
           when: should_restore_media
 
         - name: Check uploaded database dump
@@ -102,12 +103,14 @@
             set -euo pipefail
             APP_DB_NAME="$(kubectl get secret backend -n "{{ k8s_namespace | default('default') }}" -o jsonpath='{.data.backend_db_name}' | base64 -d)"
             APP_DB_USER="$(kubectl get secret backend -n "{{ k8s_namespace | default('default') }}" -o jsonpath='{.data.backend_db_user}' | base64 -d)"
-            APP_DB_PASSWORD="$(kubectl get secret backend -n "{{ k8s_namespace | default('default') }}" -o jsonpath='{.data.backend_db_password}' | base64 -d)"
-            if [[ "{{ remote_db_backup_file }}" == *.gz ]]; then
-              gzip -dc "{{ remote_db_backup_file }}"
-            else
-              cat "{{ remote_db_backup_file }}"
-            fi | kubectl exec -i -n "{{ k8s_namespace | default('default') }}" deploy/postgres -- sh -c "PGPASSWORD=\"$APP_DB_PASSWORD\" psql -v ON_ERROR_STOP=1 -U \"$APP_DB_USER\" -d \"$APP_DB_NAME\""
+            {
+              printf 'SET ROLE :"restore_user";\n'
+              if [[ "{{ remote_db_backup_file }}" == *.gz ]]; then
+                gzip -dc "{{ remote_db_backup_file }}"
+              else
+                cat "{{ remote_db_backup_file }}"
+              fi
+            } | kubectl exec -i -n "{{ k8s_namespace | default('default') }}" deploy/postgres -- sh -c "psql -v ON_ERROR_STOP=1 --set=restore_user=\"$APP_DB_USER\" -U \"\$POSTGRES_USER\" -d \"$APP_DB_NAME\""
           args:
             executable: /bin/bash
           when: should_restore_db
