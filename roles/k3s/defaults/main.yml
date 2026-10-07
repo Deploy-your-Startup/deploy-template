@@ -1,5 +1,5 @@
 ---
-k3s_version: "v1.36.3+k3s1"
+k3s_version: "v1.36.5+k3s1"
 
 # Upgrading an existing node is opt-in. A normal `infrastructure` run must never
 # restart k3s just because someone bumped k3s_version in a template sync, so the

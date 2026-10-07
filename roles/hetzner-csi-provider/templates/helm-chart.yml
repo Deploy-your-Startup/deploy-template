@@ -6,4 +6,5 @@ metadata:
 spec:
   repo: https://charts.hetzner.cloud
   chart: hcloud-csi
+  version: "{{ hcloud_csi_chart_version }}"
   targetNamespace: kube-system

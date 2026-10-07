@@ -1,5 +1,5 @@
 - name: "Create a basic Load Balancer"
-  hetzner.hcloud.hcloud_load_balancer:
+  hetzner.hcloud.load_balancer:
     name: "{{ project_name }}"
     load_balancer_type: lb11
     algorithm: round_robin
@@ -9,7 +9,7 @@
   tags: infrastructure
 
 - name: Create a label_selector Load Balancer target
-  hetzner.hcloud.hcloud_load_balancer_target:
+  hetzner.hcloud.load_balancer_target:
     type: label_selector
     load_balancer: "{{ load_balancer_result.hcloud_load_balancer.id }}"
     label_selector: "ingress=true"
@@ -17,7 +17,7 @@
   tags: infrastructure
 
 - name: Create a basic Load Balancer service with Port 80
-  hetzner.hcloud.hcloud_load_balancer_service:
+  hetzner.hcloud.load_balancer_service:
     load_balancer: "{{ load_balancer_result.hcloud_load_balancer.id }}"
     protocol: tcp
     listen_port: 80
@@ -26,7 +26,7 @@
   tags: infrastructure
 
 - name: Create a basic Load Balancer service with Port 443
-  hetzner.hcloud.hcloud_load_balancer_service:
+  hetzner.hcloud.load_balancer_service:
       load_balancer: "{{ load_balancer_result.hcloud_load_balancer.id }}"
       protocol: tcp
       listen_port: 443

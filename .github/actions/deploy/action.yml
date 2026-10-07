@@ -74,6 +74,14 @@ runs:
           cp "$source_root/restore-playbook.yml" "$destination/restore-playbook.yml"
         fi
 
+        if [ -f "$source_root/update-vms-playbook.yml" ]; then
+          cp "$source_root/update-vms-playbook.yml" "$destination/update-vms-playbook.yml"
+        fi
+
+        if [ -f "$source_root/k3s-upgrade-playbook.yml" ]; then
+          cp "$source_root/k3s-upgrade-playbook.yml" "$destination/k3s-upgrade-playbook.yml"
+        fi
+
     - name: Cache Ansible collections
       id: cache-collections
       uses: actions/cache@v6
@@ -101,21 +109,27 @@ runs:
       working-directory: ./deployment
       env:
         SSH_AUTH_SOCK: /tmp/ssh_agent.sock
+        STARTUP_VAULT_PASSWORD: ${{ inputs.vault_password }}
       run: |
-        ssh-agent -a $SSH_AUTH_SOCK > /dev/null &&
-        echo ${{ inputs.vault_password }} | ansible-vault view ci_ssh_key --vault-password-file /bin/cat | ssh-add -
+        set -euo pipefail
+        ssh-agent -a "$SSH_AUTH_SOCK" > /dev/null
+        startup secrets get-file --file ci_ssh_key | ssh-add -
     
     - name: "Deploy frontend"
       shell: "bash"
       if: github.event_name != 'pull_request'
       env:
         SSH_AUTH_SOCK: /tmp/ssh_agent.sock
+        STARTUP_VAULT_PASSWORD: ${{ inputs.vault_password }}
+        STARTUP_DEPLOY_SERVICE: ${{ inputs.service }}
+        STARTUP_DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
       working-directory: ./deployment
       run: |
-        if [ "${{ inputs.service }}" = "infrastructure" ]; then
-          ./make.sh infrastructure --vault_password ${{ inputs.vault_password }} --environment ${{ inputs.environment }} --no-refresh
-        elif [ -z "${{ inputs.service }}" ]; then
-          ./make.sh deploy --vault_password ${{ inputs.vault_password }} --environment ${{ inputs.environment }} --no-refresh
+        set -euo pipefail
+        if [ "$STARTUP_DEPLOY_SERVICE" = "infrastructure" ]; then
+          ./make.sh infrastructure --environment "$STARTUP_DEPLOY_ENVIRONMENT" --no-refresh
+        elif [ -z "$STARTUP_DEPLOY_SERVICE" ]; then
+          ./make.sh deploy --environment "$STARTUP_DEPLOY_ENVIRONMENT" --no-refresh
         else
-          ./make.sh deploy --vault_password ${{ inputs.vault_password }} --environment ${{ inputs.environment }} --service ${{ inputs.service }} --no-refresh
+          ./make.sh deploy --environment "$STARTUP_DEPLOY_ENVIRONMENT" --service "$STARTUP_DEPLOY_SERVICE" --no-refresh
         fi

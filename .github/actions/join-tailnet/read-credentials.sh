@@ -3,7 +3,7 @@
 # client from the vault. Writes `mode`, and in private mode the credentials, to
 # $GITHUB_OUTPUT. Runs in the project's deployment/ directory.
 #
-# Env: ENVIRONMENT, VAULT_PASSWORD, GITHUB_OUTPUT
+# Env: ENVIRONMENT, STARTUP_VAULT_PASSWORD, GITHUB_OUTPUT
 set -euo pipefail
 
 # Same precedence as Ansible: the environment file overrides all.yml.
@@ -22,7 +22,7 @@ read_field() {
   local value="" file
   for file in "group_vars/${ENVIRONMENT}.yml" group_vars/all.yml; do
     [ -f "$file" ] || continue
-    value="$(startup secrets get-field -f "$file" --field "$1" -p "$VAULT_PASSWORD" 2>/dev/null || true)"
+    value="$(startup secrets get-field -f "$file" --field "$1" 2>/dev/null || true)"
     [ -n "$value" ] && break
   done
   if [ -z "$value" ]; then

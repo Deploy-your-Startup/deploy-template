@@ -15,17 +15,6 @@
   ansible.builtin.include_role:
     name: prepare-kubeconfig
 
-- name: "Check for the Kubernetes Python client"
-  ansible.builtin.command:
-    argv:
-      - python3
-      - -c
-      - import kubernetes
-  register: kubernetes_client_import
-  changed_when: false
-  failed_when: false
-
-- name: "Install the Kubernetes Python client when missing"
-  ansible.builtin.include_role:
+- name: "Prepare the isolated Kubernetes Python client"
+  ansible.builtin.import_role:
     name: python
-  when: kubernetes_client_import.rc != 0

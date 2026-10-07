@@ -1,0 +1,11 @@
+---
+- name: "Generate a join key for a new server"
+  ansible.builtin.include_role:
+    name: tailscale-auth
+    apply:
+      tags: infrastructure,tailscale
+
+- name: "Keep the join key for this server only"
+  ansible.builtin.set_fact:
+    tailscale_boot_keys: "{{ tailscale_boot_keys | combine({tailscale_new_server_name: tailscale_join_key}) }}"
+  no_log: true

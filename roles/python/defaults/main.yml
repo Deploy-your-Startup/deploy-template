@@ -1,0 +1,3 @@
+---
+kubernetes_python_venv: /opt/startup-ansible
+kubernetes_python_client_version: "36.0.3"

@@ -3,7 +3,7 @@
 # tailnet can reach this server, so Ansible depends on this having run.
 # Mirrors roles/tailscale/templates/tailscale-up.sh.j2, which does the same for
 # servers that already exist.
-{% set key = tailscale_auth_key | trim %}
+{% set key = tailscale_boot_keys[server_name] %}
 write_files:
   # Joining creates tailscale0, which starts the socket-activated
   # cloud-init-hotplugd. The next apt install runs needrestart, which restarts
@@ -18,6 +18,6 @@ runcmd:
     set -e
     curl -fsSL https://tailscale.com/install.sh | sh
     tailscale up \
-      --auth-key='{{ key }}{{ "?ephemeral=false&preauthorized=true" if key.startswith("tskey-client-") else "" }}' \
+      --auth-key={{ key | quote }} \
       --advertise-tags='{{ tailscale_tags | default(["tag:server"]) | join(",") }}' \
       --hostname='{{ server_name }}'

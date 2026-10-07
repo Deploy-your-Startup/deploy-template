@@ -3,6 +3,8 @@ kind: PersistentVolume
 apiVersion: v1
 metadata:
   name: "{{ postgres_pv_name }}"
+  annotations:
+    startup.deploy/storage-node: "{{ postgres_selected_node }}"
   labels:
     app: postgres
     type: local
