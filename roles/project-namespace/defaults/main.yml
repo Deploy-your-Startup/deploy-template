@@ -1,0 +1,10 @@
+---
+startup_namespace_policy: false
+startup_namespace_quota:
+  requests.cpu: "2"
+  requests.memory: "2Gi"
+  limits.cpu: "4"
+  limits.memory: "4Gi"
+  pods: "20"
+  services: "10"
+  persistentvolumeclaims: "4"
