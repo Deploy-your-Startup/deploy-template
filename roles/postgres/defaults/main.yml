@@ -1,5 +1,6 @@
 ---
 postgres_version: "18.6"
+postgres_ready_timeout: 300
 
 # Keep the legacy names and data path for existing projects in `default`.
 # Namespaces created for new BYOS projects need cluster-wide PV names and host

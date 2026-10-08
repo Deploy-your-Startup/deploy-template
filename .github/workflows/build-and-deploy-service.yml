@@ -58,7 +58,7 @@ jobs:
       id-token: write
       # Needed to see whether an infrastructure run is still in progress.
       # Declaring permissions at all sets every unlisted scope to none, so the
-      # lookup would silently 403 and the wait would degrade to a no-op.
+      # lookup would 403 and the wait step correctly stop deployment.
       actions: read
 
     services:
