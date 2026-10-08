@@ -20,6 +20,32 @@
   environment:
     NEEDRESTART_MODE: l
 
+- name: "Check whether the isolated environment matches distribution Python"
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import pathlib, sys
+        root = pathlib.Path(sys.argv[1])
+        if not root.exists():
+            print('missing')
+        else:
+            cfg = root / 'pyvenv.cfg'
+            lines = cfg.read_text().splitlines() if cfg.exists() else []
+            version = next((line.partition('=')[2].strip() for line in lines
+                            if line.partition('=')[0].strip() == 'version'), '')
+            expected = [str(sys.version_info.major), str(sys.version_info.minor)]
+            print('ready' if version.split('.')[:2] == expected else 'rebuild')
+      - "{{ kubernetes_python_venv }}"
+  register: kubernetes_python_environment
+  changed_when: false
+
+- name: "Rebuild the isolated client after a distribution Python upgrade"
+  ansible.builtin.command:
+    argv: [/usr/bin/python3, -m, venv, --clear, "{{ kubernetes_python_venv }}"]
+  when: kubernetes_python_environment.stdout == 'rebuild'
+
 - name: "Install the pinned Kubernetes client in an isolated environment"
   ansible.builtin.pip:
     name: "kubernetes=={{ kubernetes_python_client_version }}"
