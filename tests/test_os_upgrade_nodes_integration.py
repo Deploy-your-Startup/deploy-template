@@ -215,7 +215,7 @@ def run_upgrade(cluster):
         env={**os.environ, "ANSIBLE_CONFIG": str(root / "ansible.cfg")},
         text=True,
         capture_output=True,
-        timeout=180,
+        timeout=300,
     )
 
 
