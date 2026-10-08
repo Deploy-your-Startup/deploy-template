@@ -1,0 +1,97 @@
+---
+- name: Check execution requirements
+  ansible.builtin.assert:
+    that:
+      - os_upgrade_target is match('^[0-9]{2}\.04$')
+      - not (os_upgrade_execute | bool) or (os_upgrade_backup_confirmed | bool)
+      - not (os_upgrade_execute | bool) or os_upgrade_health_urls | length > 0
+      - not ansible_check_mode
+    fail_msg: Use the CLI preview, then --execute with --backup-confirmed and --health-url. Ansible check mode is not supported.
+
+- name: Build driver arguments
+  ansible.builtin.set_fact:
+    os_upgrade_driver_args: >-
+      --target {{ os_upgrade_target | quote }}
+      --release-file {{ os_upgrade_release_file | quote }}
+      --config-file {{ os_upgrade_config_file | quote }}
+      --state-dir {{ os_upgrade_state_dir | quote }}
+      {% for path in os_upgrade_supported_paths %} --supported-path {{ path | quote }}{% endfor %}
+    os_upgrade_master: >-
+      {{ (groups.get('hcloud_type_master', []) | intersect(groups.get(os_upgrade_environment, [])) | sort | first) | default('') }}
+
+- name: Inspect Ubuntu release and pending upgrade state
+  ansible.builtin.script:
+    cmd: "{{ role_path }}/files/upgrade.py probe {{ os_upgrade_driver_args }}"
+    executable: "{{ os_upgrade_python }}"
+  register: os_upgrade_probe
+  changed_when: false
+  until: os_upgrade_probe.rc != 0 or not (os_upgrade_execute | bool) or not ((os_upgrade_probe.stdout | from_json).running)
+  retries: "{{ (os_upgrade_timeout | int / 5) | int if os_upgrade_execute | bool else 1 }}"
+  delay: 5
+
+- name: Record upgrade plan
+  ansible.builtin.set_fact:
+    os_upgrade_plan: "{{ os_upgrade_probe.stdout | from_json }}"
+
+- name: Show upgrade plan
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}: Ubuntu {{ os_upgrade_plan.current }} -> {{ os_upgrade_target }};
+      offered={{ os_upgrade_plan.offered | default('none', true) }};
+      reviewed_path={{ os_upgrade_plan.allowed | default(false) }};
+      already_upgraded={{ os_upgrade_plan.already_upgraded | default(false) }};
+      running={{ os_upgrade_plan.running }};
+      mode={{ 'execute (reboot and application downtime possible)' if os_upgrade_execute | bool else 'preview' }}
+
+- name: Reject unavailable or unreviewed upgrade paths
+  ansible.builtin.assert:
+    that:
+      - os_upgrade_plan.allowed | default(false)
+      - (os_upgrade_plan.already_upgraded | default(false)) or (os_upgrade_plan.available | default(false))
+      - os_upgrade_master | length > 0
+    fail_msg: Target must be a reviewed consecutive LTS path offered by Ubuntu, and this environment must have a k3s control plane. No upgrade started.
+  when: os_upgrade_execute | bool
+
+- name: Verify application URLs before changing any node
+  ansible.builtin.uri:
+    url: "{{ item }}"
+    ca_path: "{{ os_upgrade_health_ca_path | default(omit, true) }}"
+    status_code: 200
+    follow_redirects: none
+    timeout: 20
+  delegate_to: localhost
+  become: false
+  loop: "{{ os_upgrade_health_urls }}"
+  changed_when: false
+
+- name: Read cluster state before changing any node
+  ansible.builtin.command:
+    argv: [k3s, kubectl, get, nodes, -o, json]
+  delegate_to: "{{ os_upgrade_master }}"
+  register: os_upgrade_cluster
+  changed_when: false
+  when: os_upgrade_execute | bool
+
+- name: Require healthy nodes and matching node names
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname in (os_upgrade_cluster.stdout | from_json)['items'] | map(attribute='metadata.name') | list
+      - >-
+        (os_upgrade_cluster.stdout | from_json)['items']
+        | map(attribute='status.conditions') | flatten
+        | selectattr('type', 'equalto', 'Ready')
+        | selectattr('status', 'equalto', 'True') | list | length ==
+        (os_upgrade_cluster.stdout | from_json)['items'] | length
+      - >-
+        not ((os_upgrade_cluster.stdout | from_json)['items']
+        | selectattr('metadata.name', 'equalto', inventory_hostname) | first).spec.get('unschedulable', false)
+        or os_upgrade_plan.completed_upgrade | default(false)
+    fail_msg: Cluster must be healthy and inventory host names must match k3s node names before an OS upgrade.
+  when: os_upgrade_execute | bool
+
+- name: Require healthy workloads before any upgrade starts
+  ansible.builtin.command:
+    argv: [k3s, kubectl, wait, pods, --all, --all-namespaces, --field-selector=status.phase!=Succeeded, --for=condition=Ready, "--timeout={{ os_upgrade_health_timeout }}s"]
+  delegate_to: "{{ os_upgrade_master }}"
+  changed_when: false
+  when: os_upgrade_execute | bool

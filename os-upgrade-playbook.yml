@@ -1,0 +1,25 @@
+---
+# Preflight the entire selection before upgrading any node. No group_vars or
+# vaulted project settings are read from this shared playbook.
+- name: Preview Ubuntu LTS release upgrade
+  hosts: all:!provision-infrastructure
+  gather_facts: false
+  become: true
+  any_errors_fatal: true
+  tasks:
+    - name: Inspect upgrade readiness
+      ansible.builtin.import_role:
+        name: os-upgrade
+        tasks_from: preflight
+
+- name: Upgrade selected nodes one at a time
+  hosts: all:!provision-infrastructure
+  gather_facts: false
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  tasks:
+    - name: Upgrade and verify this node
+      ansible.builtin.import_role:
+        name: os-upgrade
+      when: os_upgrade_execute | default(false) | bool
