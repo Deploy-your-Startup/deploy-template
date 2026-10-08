@@ -15,6 +15,7 @@
     - ingress
     - k3s
     - kubernetes-client
+    - os-upgrade
     - postgres
     - prepare-kubeconfig
     - project-namespace
@@ -32,3 +33,5 @@
       ansible.builtin.import_tasks: ../roles/hetzner-server/tasks/mint-join-key.yml
     - name: Validate roles/postgres/tasks/preflight.yml
       ansible.builtin.import_tasks: ../roles/postgres/tasks/preflight.yml
+    - name: Validate roles/os-upgrade/tasks/preflight.yml
+      ansible.builtin.import_tasks: ../roles/os-upgrade/tasks/preflight.yml
