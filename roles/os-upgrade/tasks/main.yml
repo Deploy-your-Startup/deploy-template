@@ -92,6 +92,10 @@
     os_upgrade_verified.rc != 0 or
     not ((os_upgrade_verified.stdout | from_json).already_upgraded | default(false))
 
+- name: Prepare the Kubernetes deployment client for the target Python release
+  ansible.builtin.import_role:
+    name: python
+
 - name: Wait for this node to report Ready
   ansible.builtin.command:
     argv: [k3s, kubectl, wait, "node/{{ inventory_hostname }}", --for=condition=Ready, --timeout=10s]
@@ -136,6 +140,8 @@
     timeout: 20
   delegate_to: localhost
   become: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
   loop: "{{ os_upgrade_health_urls }}"
   register: os_upgrade_application
   until: os_upgrade_application.status | default(0) == 200
