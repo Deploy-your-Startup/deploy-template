@@ -15,6 +15,10 @@
     cache_valid_time: 3600
   vars:
     ansible_python_interpreter: /usr/bin/python3
+  # Package hooks must not restart services in the middle of provisioning.
+  # Ubuntu's cloud-init-hotplugd restart can block indefinitely on its FIFO.
+  environment:
+    NEEDRESTART_MODE: l
 
 - name: "Install the pinned Kubernetes client in an isolated environment"
   ansible.builtin.pip:

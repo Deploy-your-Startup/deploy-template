@@ -11,7 +11,11 @@ runtime is locked in `uv.lock`; no project or cloud credentials are needed.
 `./make.sh lint` validates YAML, duplicate keys and misplaced task keywords.
 `./make.sh test` loads every role and included task file through Ansible and
 checks storage placement, teardown guards, secret censorship and Cloud-init
-rendering. These checks do not provision infrastructure or execute a deployment.
+rendering. The restore integration test runs the actual playbook shell scripts
+against a disposable Docker Postgres 18.6 database with a Kubernetes boundary
+stand-in; it checks rows, role ownership and password-free process arguments.
+It skips when Docker is unavailable. Set RESTORE_POSTGRES_IMAGE to another
+installed Postgres image for an additional compatibility check. These checks do not provision infrastructure or execute a deployment.
 
 The CLI source also provides a syntax-only command. With that CLI installed:
 
