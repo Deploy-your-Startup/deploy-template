@@ -1,11 +1,22 @@
-# Deploy Template
+# Deploy Your Startup — shared deployment foundation
 
 This repository contains the shared deploy workflows, composite actions, and
-Ansible roles that Deploy Your Startup customers sync into their own private
+Ansible roles that Deploy Your Startup users sync into their own private
 `deploy-your-startup` repository.
 
 It combines the reusable GitHub Actions logic with the shared deployment assets
-so projects only need one synced private repository.
+so projects can reuse one deployment foundation for each new startup. Workflows
+and infrastructure remain in the user's own accounts and are open to
+customization. Services provide their own build, lint and test commands, keeping
+shared deployment independent of application languages.
+
+**Harness Engineering for startups: Speed, Control and Scalability.**
+Build quickly with reusable agent instructions, tools and automated checks,
+while keeping ownership and room to grow.
+
+Part of [Deploy Your Startup](https://deploy-your-startup.com). For your first
+application, follow the [CLI quickstart](https://github.com/Deploy-your-Startup/cli#your-first-startup).
+Contributor conventions live in [AGENTS.md](AGENTS.md).
 
 ## Available Workflows
 
@@ -15,18 +26,19 @@ so projects only need one synced private repository.
 - **Features**:
   - Generic workflow for building and deploying any service
   - Configurable service name
-  - Optional testing
+  - Optional testing and linting through `./make.sh test` and `./make.sh lint`
+  - Pull requests build and check without pushing images or deploying
   - Optional multi-platform support (amd64/arm64)
   - Standardized Docker image building and pushing
   - Deployment to configured environments
 
 ### Deployment
 - **File**: `.github/workflows/deploy.yml`
-- **Type**: Reusable workflow and standalone workflow
-- **Triggers**: Pushes to `main` branch affecting `deployment/**` files or manual workflow dispatch
+- **Type**: Reusable workflow (`workflow_call`)
+- **Triggers**: Called by the project's own workflow; define push/manual triggers there
 - **Features**:
   - Can be reused in other workflows
-  - Generic deployment process for any service
+  - Deploys the services configured in the project playbook
 
 ### Infrastructure Deployment
 - **File**: `.github/workflows/deploy-infrastructure.yml`
@@ -70,13 +82,15 @@ so projects only need one synced private repository.
   - Runs tests in a container with database connection
   - Uses make.sh script for test execution
 
-### Docker Build and Push Action
-- **Location**: `.github/actions/docker-build-push/action.yml`
-- **Purpose**: Build and push Docker images to container registry
-- **Features**:
-  - Builds multi-platform images (amd64/arm64)
-  - Pushes both latest and versioned tags
-  - Uses GitHub Actions cache for faster builds
+### Docker Build and Push
+
+The generic service workflow calls `docker/build-push-action` directly. Configure
+`platforms` (for example `linux/amd64,linux/arm64`) on the reusable workflow;
+there is no separate bundled Docker build/push action.
+
+### Wait for Infrastructure Action
+- **Location**: `.github/actions/wait-for-infrastructure/action.yml`
+- **Purpose**: Wait for an active infrastructure run before deploying services
 
 ### Setup Environment Action
 - **Location**: `.github/actions/setup-environment/action.yml`
@@ -94,7 +108,9 @@ For a service to work with these workflows, it needs to include:
    - A production build stage for the final image
 
 2. **make.sh** script with the following commands:
-   - `test` command for running tests
+   - `test` command when `run_tests: true`
+   - `lint` command when `run_lint: true` (checks only, no changes)
+   - `format` command for local formatting and fixes
    - `run` command for starting the service
    - The script must be executable and located at the root of the service directory
 
@@ -114,7 +130,7 @@ FROM builder as production
 # Final production image setup
 ...
 # Start the service when container runs
-RUN ./make.sh run
+CMD ["./make.sh", "run"]
 ```
 
 Example make.sh script:
@@ -126,6 +142,14 @@ case "$1" in
   test)
     echo "Running tests..."
     npm test
+    ;;
+  lint)
+    npm run format:check
+    npm run lint
+    ;;
+  format)
+    npm run format
+    npm run lint:fix
     ;;
   run)
     echo "Starting service..."
@@ -140,6 +164,18 @@ esac
 
 ## Usage in Your Projects
 
+Run `startup sync` to copy this template into your own private
+`<github-owner>/deploy-your-startup` repository. Projects resolve shared roles
+from that user copy. Editing this template alone does not update projects;
+run `startup sync` again after the upstream change is available, then let
+`startup ansible setup_ansible` refresh the local checkout. Do not hand-edit
+`deployment/.shared-roles`.
+
+The `§§deploy_your_startup.*§§` placeholders below are rendered by sync. In a
+project workflow, replace them with your GitHub owner and shared repository name.
+Enable `run_lint` only after the service implements `./make.sh lint`; it defaults
+to false. Caller workflows need a `pull_request` trigger for checks before merge.
+
 To use these workflows in your projects, reference them in your repository's workflow files:
 
 ### Using the generic service workflow:
@@ -152,6 +188,11 @@ on:
     branches: [main]
     paths:
       - frontend/**
+      - .github/workflows/build-and-deploy-frontend.yml
+  pull_request:
+    paths:
+      - frontend/**
+      - .github/workflows/build-and-deploy-frontend.yml
   workflow_dispatch:
 
 jobs:
@@ -161,7 +202,8 @@ jobs:
       service: frontend
       environment: production
       run_tests: true
-      multi_platform: true
+      run_lint: true
+      platforms: linux/amd64,linux/arm64
     secrets:
       VAULT_PASSWORD: ${{ secrets.VAULT_PASSWORD }}
 ```
@@ -184,7 +226,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Custom pre-deployment task
-        run: echo "Running custom pre-deployment task: ${{ github.event.inputs.custom_param }}"
+        env:
+          CUSTOM_PARAM: ${{ inputs.custom_param }}
+        run: |
+          printf 'Running custom pre-deployment task: %s\n' "$CUSTOM_PARAM"
   
   deploy:
     needs: pre-deploy
@@ -239,7 +284,10 @@ your-project/
 ├── auth-proxy/         # Auth proxy service with Dockerfile
 ├── ai/                 # AI service with Dockerfile
 └── deployment/         # Ansible deployment scripts
-    └── requirements.txt # Python dependencies for deployment
+    ├── pyproject.toml   # Deployment dependencies (uv)
+    ├── uv.lock          # Locked versions
+    ├── playbook.yml     # Project-specific deployment
+    └── group_vars/      # Public settings and encrypted secrets
 ```
 
 ## Private Network Mode
@@ -323,11 +371,8 @@ old device in the admin console.
 
 ## Dependabot Configuration
 
-This repository includes automatic dependency updates via Dependabot for:
-- GitHub Actions workflows
-- Go modules (auth-proxy)
-- NPM packages (frontend)
-- Python packages (backend, ai, deployment)
+Dependabot updates GitHub Actions in this repository weekly. Application
+dependency updates belong in the generated project repositories.
 
 ## Extending the Workflows
 
@@ -349,3 +394,28 @@ cluster-changing operations from attached projects. Administrative SSH access
 remains part of the current deployment contract, so this is for mutually trusted
 applications under one operator. Local Postgres and media volumes are not highly
 available; back up each startup separately before cluster maintenance.
+
+## Ubuntu LTS release upgrades
+
+The shared `os-upgrade-playbook.yml` and `os-upgrade` role support
+`startup ansible os-upgrade`. The default is a preview; execution requires
+`--execute`, `--backup-confirmed` and an HTTPS `--health-url`. See the
+[CLI operation guide](https://github.com/Deploy-your-Startup/cli#ubuntu-lts-release-upgrades)
+for prerequisites, backups, downtime and recovery. This requires releases of
+both the CLI and shared roles containing the feature, followed by sync and
+review of the project's immutable role pin.
+
+The role permits reviewed consecutive LTS paths (initially 24.04 → 26.04),
+checks Ubuntu's normal release offer and upgrades one node at a time. Future
+LTS support extends `roles/os-upgrade/defaults/main.yml` after compatibility
+qualification; the generic driver and CLI remain the same. No development
+release is forced and changing `hetzner_os_image` does not upgrade existing nodes.
+
+Run `mise run test` with Docker available to exercise the complete real
+playbook against disposable Ubuntu nodes. Package management, file operations
+and async execution are real; release upgrades, kernel reboots and k3s are
+simulated system boundaries. Without Docker these node checks skip locally;
+CI requires them. Before adding a supported path or releasing it for production,
+also qualify a real disposable k3s deployment, including release availability,
+SSH/reboot recovery, storage, networking and application HTTPS checks. Local
+integration success alone is not live release compatibility.

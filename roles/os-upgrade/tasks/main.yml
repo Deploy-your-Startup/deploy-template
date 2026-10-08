@@ -1,0 +1,154 @@
+---
+- name: Read whether a reboot is still pending
+  ansible.builtin.stat:
+    path: "{{ os_upgrade_reboot_required_file }}"
+  register: os_upgrade_reboot_pending
+
+- name: Record whether this node needs an upgrade
+  ansible.builtin.set_fact:
+    os_upgrade_needed: "{{ not os_upgrade_plan.already_upgraded }}"
+    os_upgrade_drain_needed: >-
+      {{ ((os_upgrade_cluster.stdout | from_json)['items'] | length > 1)
+         and (not os_upgrade_plan.already_upgraded or os_upgrade_reboot_pending.stat.exists
+              or (os_upgrade_plan.completed_upgrade | default(false))) }}
+
+- name: Drain this node while respecting disruption budgets and local data
+  ansible.builtin.command:
+    argv:
+      - k3s
+      - kubectl
+      - drain
+      - "{{ inventory_hostname }}"
+      - --ignore-daemonsets
+      - --timeout=300s
+  delegate_to: "{{ os_upgrade_master }}"
+  when: os_upgrade_drain_needed
+
+- name: Prepare installed packages for the release upgrade
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: dist
+    lock_timeout: 300
+  when: os_upgrade_needed
+
+- name: Read whether package preparation requires a reboot
+  ansible.builtin.stat:
+    path: "{{ os_upgrade_reboot_required_file }}"
+  register: os_upgrade_prepared_reboot
+  when: os_upgrade_needed
+
+- name: Reboot into updated source-release packages
+  ansible.builtin.reboot:
+    reboot_timeout: 1800
+    boot_time_command: "{{ os_upgrade_boot_time_command }}"
+  when:
+    - os_upgrade_needed
+    - os_upgrade_prepared_reboot.stat.exists
+
+- name: Create remote driver directory
+  ansible.builtin.file:
+    path: "{{ os_upgrade_remote_driver | dirname }}"
+    state: directory
+    mode: '0755'
+  when: os_upgrade_needed
+
+- name: Install durable upgrade driver
+  ansible.builtin.copy:
+    src: upgrade.py
+    dest: "{{ os_upgrade_remote_driver }}"
+    mode: '0700'
+  when: os_upgrade_needed
+
+- name: Start the release upgrade independently of the SSH connection
+  ansible.builtin.shell: >-
+    {{ os_upgrade_python | quote }} {{ os_upgrade_remote_driver | quote }} upgrade {{ os_upgrade_driver_args }}
+  async: "{{ os_upgrade_timeout }}"
+  poll: 0
+  register: os_upgrade_job
+  when: os_upgrade_needed
+
+- name: Wait for release upgrade to finish
+  ansible.builtin.async_status:
+    jid: "{{ os_upgrade_job.ansible_job_id }}"
+  register: os_upgrade_finished
+  until: os_upgrade_finished.finished | default(false)
+  retries: "{{ (os_upgrade_timeout | int / 15) | int }}"
+  delay: 15
+  when: os_upgrade_needed
+
+- name: Reboot into the target Ubuntu release
+  ansible.builtin.reboot:
+    reboot_timeout: 1800
+    boot_time_command: "{{ os_upgrade_boot_time_command }}"
+  when: os_upgrade_needed or os_upgrade_reboot_pending.stat.exists
+
+- name: Verify the installed target and completed package operations
+  ansible.builtin.script:
+    cmd: "{{ role_path }}/files/upgrade.py probe {{ os_upgrade_driver_args }}"
+    executable: "{{ os_upgrade_python }}"
+  register: os_upgrade_verified
+  changed_when: false
+  failed_when: >-
+    os_upgrade_verified.rc != 0 or
+    not ((os_upgrade_verified.stdout | from_json).already_upgraded | default(false))
+
+- name: Wait for this node to report Ready
+  ansible.builtin.command:
+    argv: [k3s, kubectl, wait, "node/{{ inventory_hostname }}", --for=condition=Ready, --timeout=10s]
+  delegate_to: "{{ os_upgrade_master }}"
+  register: os_upgrade_node_ready
+  until: os_upgrade_node_ready.rc == 0
+  retries: "{{ [1, (os_upgrade_health_timeout | int / 20) | round(0, 'ceil') | int] | max }}"
+  delay: 10
+  changed_when: false
+
+- name: Verify k3s service is running on the upgraded node
+  ansible.builtin.command:
+    argv: [systemctl, is-active, "{{ 'k3s' if inventory_hostname in groups.get('hcloud_type_master', []) else 'k3s-agent' }}"]
+  register: os_upgrade_service
+  until: os_upgrade_service.rc == 0
+  retries: "{{ (os_upgrade_health_timeout | int / 10) | int }}"
+  delay: 10
+  changed_when: false
+
+- name: Return the verified node to scheduling
+  ansible.builtin.command:
+    argv: [k3s, kubectl, uncordon, "{{ inventory_hostname }}"]
+  delegate_to: "{{ os_upgrade_master }}"
+  when: os_upgrade_drain_needed
+
+- name: Wait for workloads to become Ready
+  ansible.builtin.command:
+    argv: [k3s, kubectl, wait, pods, --all, --all-namespaces, --field-selector=status.phase!=Succeeded, --for=condition=Ready, --timeout=10s]
+  delegate_to: "{{ os_upgrade_master }}"
+  register: os_upgrade_workloads_ready
+  until: os_upgrade_workloads_ready.rc == 0
+  retries: "{{ [1, (os_upgrade_health_timeout | int / 20) | round(0, 'ceil') | int] | max }}"
+  delay: 10
+  changed_when: false
+
+- name: Verify application URLs before proceeding to the next node
+  ansible.builtin.uri:
+    url: "{{ item }}"
+    ca_path: "{{ os_upgrade_health_ca_path | default(omit, true) }}"
+    status_code: 200
+    follow_redirects: none
+    timeout: 20
+  delegate_to: localhost
+  become: false
+  loop: "{{ os_upgrade_health_urls }}"
+  register: os_upgrade_application
+  until: os_upgrade_application.status | default(0) == 200
+  retries: "{{ (os_upgrade_health_timeout | int / 10) | int }}"
+  delay: 10
+  changed_when: false
+
+- name: Record successful health verification for later reruns
+  ansible.builtin.script:
+    cmd: "{{ role_path }}/files/upgrade.py verified {{ os_upgrade_driver_args }}"
+    executable: "{{ os_upgrade_python }}"
+  when: os_upgrade_plan.completed_upgrade | default(false) or os_upgrade_needed
+
+- name: Report completed node upgrade
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }} verified on Ubuntu {{ os_upgrade_target }}; node, workloads and HTTPS checks passed"
