@@ -36,4 +36,9 @@
   kubernetes.core.k8s:
     state: present
     definition: "{{ lookup('template', 'deployment.yml') }}"
+    wait: true
+    wait_timeout: "{{ postgres_ready_timeout }}"
+    wait_condition:
+      type: Available
+      status: "True"
   tags: postgres
