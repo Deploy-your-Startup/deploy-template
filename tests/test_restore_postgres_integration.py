@@ -26,8 +26,10 @@ def test_restore_preserves_data_and_owner_without_password_arguments(tmp_path):
         docker("run", "--detach", "--network", "none", "--name", container,
                "-e", "POSTGRES_HOST_AUTH_METHOD=trust", "-e", "POSTGRES_USER=admin",
                "-e", "POSTGRES_DB=restore_check", os.environ.get("RESTORE_POSTGRES_IMAGE", "postgres:18.6"))
+        # The image starts a temporary socket-only server during initialization.
+        # TCP readiness proves initialization finished before the first query.
         for _ in range(60):
-            ready = subprocess.run(["docker", "exec", container, "pg_isready", "-U", "admin"], capture_output=True)
+            ready = subprocess.run(["docker", "exec", container, "pg_isready", "-h", "127.0.0.1", "-U", "admin", "-d", "restore_check"], capture_output=True)
             if ready.returncode == 0:
                 break
             time.sleep(1)
