@@ -66,6 +66,16 @@
       {{ (not cert_manager_present) or (cert_manager_upgrade | bool) }}
   tags: cert-manager
 
+- name: Require the owner to install or upgrade shared cluster components
+  ansible.builtin.assert:
+    that:
+      - cert_manager_present
+      - not (cert_manager_upgrade | bool)
+      - cert_manager_solver != 'dns01' or cert_manager_webhook_present
+    fail_msg: Install or upgrade cert-manager and its DNS webhook from the cluster owner first.
+  when: not (startup_cluster_managed | default(true) | bool)
+  tags: cert-manager
+
 # Traefik in current k3s owns these CRDs. Do not overwrite them with a
 # separately downloaded manifest when installing or upgrading cert-manager.
 - name: "Check whether Gateway API CRDs are already managed by the cluster"
@@ -90,6 +100,7 @@
   ansible.builtin.assert:
     that:
       - cert_manager_gateway_crd_count in [0, 3]
+      - startup_cluster_managed | default(true) | bool or cert_manager_gateway_crd_count == 3
     fail_msg: >-
       Gateway API is partially installed. Finish the cluster's CRD installation
       before deploying cert-manager; existing CRDs were not overwritten.

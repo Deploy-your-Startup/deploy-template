@@ -1,4 +1,12 @@
 ---
+- name: Check shared-cluster and namespace ownership
+  ansible.builtin.include_tasks:
+    file: cluster.yml
+    apply:
+      tags: always
+  when: startup_cluster_id is defined
+  tags: always
+
 # The namespace a project deploys into is a single line in its
 # `group_vars/all.yml`. Changing it after the first deploy renames the
 # project's PersistentVolumes and moves their hostPaths, so the cluster would
@@ -49,5 +57,14 @@
       kind: Namespace
       metadata:
         name: "{{ k8s_namespace }}"
+        annotations: "{{ {'startup.deploy/owner': startup_project_owner} if startup_project_owner is defined else {} }}"
   when: k8s_namespace | default('default') != 'default'
+  tags: always
+
+- name: Configure shared-startup resource and network policies
+  ansible.builtin.include_tasks:
+    file: policy.yml
+    apply:
+      tags: always
+  when: startup_namespace_policy | bool
   tags: always
