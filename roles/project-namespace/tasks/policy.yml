@@ -1,0 +1,66 @@
+---
+- name: Apply per-startup resource defaults
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: LimitRange
+      metadata:
+        name: startup-defaults
+        namespace: "{{ k8s_namespace }}"
+      spec:
+        limits:
+          - type: Container
+            defaultRequest:
+              cpu: "100m"
+              memory: "128Mi"
+            default:
+              cpu: "1"
+              memory: "1Gi"
+
+- name: Apply per-startup resource quotas
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ResourceQuota
+      metadata:
+        name: startup-budget
+        namespace: "{{ k8s_namespace }}"
+      spec:
+        hard: "{{ startup_namespace_quota }}"
+
+- name: Separate startup traffic while allowing ingress and DNS
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: startup-boundary
+        namespace: "{{ k8s_namespace }}"
+      spec:
+        podSelector: {}
+        policyTypes: [Ingress, Egress]
+        ingress:
+          - from:
+              - podSelector: {}
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kube-system
+        egress:
+          - to:
+              - podSelector: {}
+          - to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kube-system
+            ports:
+              - protocol: UDP
+                port: 53
+              - protocol: TCP
+                port: 53
+          - to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+                  except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]

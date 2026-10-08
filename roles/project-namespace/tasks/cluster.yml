@@ -1,0 +1,49 @@
+---
+- name: Require a dedicated namespace for shared-cluster projects
+  ansible.builtin.assert:
+    that:
+      - k8s_namespace | default('default') != 'default'
+      - startup_cluster_id | length == 32
+      - startup_cluster_owner | length > 0
+    fail_msg: Shared-cluster projects need an identity, owner and dedicated namespace.
+
+- name: Read the shared cluster identity
+  kubernetes.core.k8s_info:
+    kind: ConfigMap
+    namespace: kube-system
+    name: startup-cluster
+  register: startup_cluster_identity
+
+- name: Verify the cluster identity before application changes
+  ansible.builtin.assert:
+    that:
+      - startup_cluster_identity.resources | length > 0 or startup_cluster_managed | default(false) | bool
+      - startup_cluster_identity.resources | length == 0 or startup_cluster_identity.resources[0].data.id == startup_cluster_id
+      - startup_cluster_identity.resources | length == 0 or startup_cluster_identity.resources[0].data.owner == startup_cluster_owner
+    fail_msg: The server is not the registered shared cluster. Deploy the owner first and export its descriptor.
+
+- name: Register a new owner's shared cluster identity
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: startup-cluster
+        namespace: kube-system
+      data:
+        id: "{{ startup_cluster_id }}"
+        owner: "{{ startup_cluster_owner }}"
+  when: startup_cluster_identity.resources | length == 0
+
+- name: Read the existing namespace owner
+  kubernetes.core.k8s_info:
+    kind: Namespace
+    name: "{{ k8s_namespace }}"
+  register: startup_existing_namespace
+
+- name: Refuse to claim a namespace belonging to another startup
+  ansible.builtin.assert:
+    that:
+      - startup_existing_namespace.resources | length == 0 or (startup_existing_namespace.resources[0].metadata.annotations | default({})).get('startup.deploy/owner', '') == startup_project_owner
+    fail_msg: This namespace already exists without matching startup ownership. Choose another project name.
