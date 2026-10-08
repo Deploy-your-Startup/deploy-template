@@ -1,0 +1,18 @@
+---
+os_upgrade_execute: false
+os_upgrade_backup_confirmed: false
+os_upgrade_health_urls: []
+os_upgrade_health_ca_path: null
+# Reviewed release paths. Extend this policy after compatibility testing; the
+# driver and CLI do not need new release-specific commands.
+os_upgrade_supported_paths:
+  - '24.04:26.04'
+os_upgrade_release_file: /etc/os-release
+os_upgrade_config_file: /etc/update-manager/release-upgrades
+os_upgrade_state_dir: /var/lib/startup/os-upgrade
+os_upgrade_reboot_required_file: /var/run/reboot-required
+os_upgrade_boot_time_command: cat /proc/sys/kernel/random/boot_id
+os_upgrade_remote_driver: /usr/local/lib/startup/os-upgrade.py
+os_upgrade_python: /usr/bin/python3
+os_upgrade_timeout: 14400
+os_upgrade_health_timeout: 600

@@ -332,3 +332,28 @@ This repository includes automatic dependency updates via Dependabot for:
 ## Extending the Workflows
 
 To add workflows for new service types, follow the pattern in the existing workflows with appropriate customizations for build, test, and deployment steps.
+
+## Ubuntu LTS release upgrades
+
+The shared `os-upgrade-playbook.yml` and `os-upgrade` role support
+`startup ansible os-upgrade`. The default is a preview; execution requires
+`--execute`, `--backup-confirmed` and an HTTPS `--health-url`. See the
+[CLI operation guide](https://github.com/Deploy-your-Startup/cli#ubuntu-lts-release-upgrades)
+for prerequisites, backups, downtime and recovery. This requires releases of
+both the CLI and shared roles containing the feature, followed by sync and
+review of the project's immutable role pin.
+
+The role permits reviewed consecutive LTS paths (initially 24.04 → 26.04),
+checks Ubuntu's normal release offer and upgrades one node at a time. Future
+LTS support extends `roles/os-upgrade/defaults/main.yml` after compatibility
+qualification; the generic driver and CLI remain the same. No development
+release is forced and changing `hetzner_os_image` does not upgrade existing nodes.
+
+Run `mise run test` with Docker available to exercise the complete real
+playbook against disposable Ubuntu nodes. Package management, file operations
+and async execution are real; release upgrades, kernel reboots and k3s are
+simulated system boundaries. Without Docker these node checks skip locally;
+CI requires them. Before adding a supported path or releasing it for production,
+also qualify a real disposable k3s deployment, including release availability,
+SSH/reboot recovery, storage, networking and application HTTPS checks. Local
+integration success alone is not live release compatibility.
