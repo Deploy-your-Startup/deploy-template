@@ -25,4 +25,6 @@ jobs:
       - name: Validate role structure
         run: ./make.sh lint
       - name: Check Ansible syntax and safety regressions
+        env:
+          STARTUP_REQUIRE_DOCKER_TESTS: '1'
         run: ./make.sh test
