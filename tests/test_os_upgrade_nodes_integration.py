@@ -251,6 +251,11 @@ def test_serial_upgrade_verifies_each_node_and_is_idempotent(cluster):
             ).stdout
         )
         assert journal["status"] == "verified" and journal["target"] == "26.04"
+        client = docker(
+            "exec", identifier, "/opt/startup-ansible/bin/python", "-c",
+            "import kubernetes; print(kubernetes.__version__)",
+        )
+        assert client.stdout.strip() == "36.0.3"
     # WHEN the owner reruns, THEN no release upgrade or reboot repeats.
     result = run_upgrade(cluster)
     assert result.returncode == 0, result.stdout + result.stderr
