@@ -332,3 +332,20 @@ This repository includes automatic dependency updates via Dependabot for:
 ## Extending the Workflows
 
 To add workflows for new service types, follow the pattern in the existing workflows with appropriate customizations for build, test, and deployment steps.
+
+## Shared-cluster ownership
+
+Shared-cluster bootstrap assigns each startup a dedicated namespace. The
+`project-namespace` role registers an owner identity in `kube-system`, validates
+it for attached projects, and rejects namespaces already owned by another
+startup. Optional namespace policies provide LimitRange defaults, ResourceQuota
+budgets and NetworkPolicy boundaries. They require an enabled network-policy
+controller. Quotas do not reserve capacity or enforce local-volume disk limits.
+
+The cluster owner provisions nodes and manages upgrades. Attached projects must
+find cert-manager, the required DNS webhook and Gateway API CRDs already
+installed; they never install or upgrade those components. The CLI rejects
+cluster-changing operations from attached projects. Administrative SSH access
+remains part of the current deployment contract, so this is for mutually trusted
+applications under one operator. Local Postgres and media volumes are not highly
+available; back up each startup separately before cluster maintenance.
