@@ -306,7 +306,7 @@ def test_export_action_includes_os_upgrade_playbook(tmp_path):
     action_path = ROOT / ".github/actions/export-shared-roles/action.yml"
     action = yaml.safe_load(action_path.read_text())
     result = subprocess.run(
-        ["bash", "-c", action["runs"]["steps"][0]["run"]],
+        ["bash", "-c", next(step["run"] for step in action["runs"]["steps"] if step.get("name") == "Export shared roles")],
         env={
             **os.environ,
             "ACTION_REPO_ROOT": str(action_path.parent),

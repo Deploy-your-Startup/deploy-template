@@ -12,10 +12,30 @@ inputs:
   vault_password:
     description: "Password for ansible vault"
     required: true
+  _pin-resolved:
+    description: Internal recursion guard for immutable action dispatch
+    required: false
+    default: "false"
 runs:
   using: "composite"
   steps:
+    - name: Resolve the reviewed runtime action
+      if: ${{ inputs._pin-resolved != 'true' && hashFiles('deployment/shared-roles.ref') != '' }}
+      shell: bash
+      env:
+        STARTUP_ACTION_REPOSITORY: ${{ github.action_repository || github.repository }}
+      run: python3 "${{ github.action_path }}/../../scripts/resolve-pinned-action.py" deploy
+
+    - name: Execute the reviewed runtime action
+      if: ${{ inputs._pin-resolved != 'true' && hashFiles('deployment/shared-roles.ref') != '' }}
+      uses: ./deployment/.startup-pinned-deploy
+      env:
+        STARTUP_PIN_ENVIRONMENT: ${{ inputs.environment }}
+        STARTUP_PIN_SERVICE: ${{ inputs.service }}
+        STARTUP_PIN_VAULT_PASSWORD: ${{ inputs.vault_password }}
+
     - name: "Set up uv"
+      if: ${{ inputs._pin-resolved == 'true' || hashFiles('deployment/shared-roles.ref') == '' }}
       uses: astral-sh/setup-uv@v7
       with:
         working-directory: deployment
@@ -26,17 +46,20 @@ runs:
           uv.lock
 
     - name: "Sync deployment dependencies with uv"
+      if: ${{ inputs._pin-resolved == 'true' || hashFiles('deployment/shared-roles.ref') == '' }}
       shell: "bash"
       working-directory: ./deployment
       run: |
         uv sync --frozen --python 3.14
 
     - name: "Expose deployment venv executables"
+      if: ${{ inputs._pin-resolved == 'true' || hashFiles('deployment/shared-roles.ref') == '' }}
       shell: "bash"
       run: |
         echo "${{ github.workspace }}/deployment/.venv/bin" >> "$GITHUB_PATH"
 
     - name: Export shared Ansible roles
+      if: ${{ inputs._pin-resolved == 'true' || hashFiles('deployment/shared-roles.ref') == '' }}
       shell: "bash"
       env:
         ACTION_REPO_ROOT: ${{ github.action_path }}
@@ -87,6 +110,7 @@ runs:
         fi
 
     - name: Cache Ansible collections
+      if: ${{ inputs._pin-resolved == 'true' || hashFiles('deployment/shared-roles.ref') == '' }}
       id: cache-collections
       uses: actions/cache@v6
       with:
@@ -96,6 +120,7 @@ runs:
           ansible-collections-${{ runner.os }}-
     
     - name: Setup shared Ansible roles and collections
+      if: ${{ inputs._pin-resolved == 'true' || hashFiles('deployment/shared-roles.ref') == '' }}
       shell: "bash"
       working-directory: ./deployment
       run: |
@@ -103,12 +128,14 @@ runs:
     
     # No-op for public projects; see the join-tailnet action.
     - name: "Join tailnet (private network mode)"
+      if: ${{ inputs._pin-resolved == 'true' || hashFiles('deployment/shared-roles.ref') == '' }}
       uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/join-tailnet@main
       with:
         environment: ${{ inputs.environment }}
         vault_password: ${{ inputs.vault_password }}
 
     - name: "Start ssh agent and add ssh key to ssh-agent"
+      if: ${{ inputs._pin-resolved == 'true' || hashFiles('deployment/shared-roles.ref') == '' }}
       shell: "bash"
       working-directory: ./deployment
       env:
@@ -121,7 +148,7 @@ runs:
     
     - name: "Deploy frontend"
       shell: "bash"
-      if: github.event_name != 'pull_request'
+      if: ${{ (inputs._pin-resolved == 'true' || hashFiles('deployment/shared-roles.ref') == '') && (github.event_name != 'pull_request') }}
       env:
         SSH_AUTH_SOCK: /tmp/ssh_agent.sock
         STARTUP_VAULT_PASSWORD: ${{ inputs.vault_password }}
