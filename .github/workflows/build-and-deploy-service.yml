@@ -60,6 +60,8 @@ jobs:
       # Declaring permissions at all sets every unlisted scope to none, so the
       # lookup would 403 and the wait step correctly stop deployment.
       actions: read
+      # Sticky coverage comment on pull requests (actions/coverage-report).
+      pull-requests: write
 
     services:
       postgres:
@@ -91,6 +93,7 @@ jobs:
       # Runs whenever either check is wanted: the image is the same, and a
       # service with no test suite still needs somewhere to be linted.
       - name: "Test Docker Image"
+        id: test
         if: ${{ inputs.run_tests || inputs.run_lint }}
         uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/docker-test@main
         with:
@@ -102,6 +105,16 @@ jobs:
           additional_build_context: ${{ inputs.additional_build_context }}
           run_tests: ${{ inputs.run_tests }}
           run_lint: ${{ inputs.run_lint }}
+
+      # Optional: only services whose `./make.sh test` writes
+      # coverage/cobertura.xml get a row. No threshold is enforced.
+      - name: "Report coverage"
+        if: ${{ steps.test.outputs.coverage_file != '' }}
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/coverage-report@main
+        with:
+          title: "Coverage: ${{ inputs.service }}"
+          comment_key: ${{ inputs.service }}
+          files: ${{ inputs.service }}=${{ steps.test.outputs.coverage_file }}
 
       - name: "Build and Push Docker Image"
         uses: docker/build-push-action@v7
