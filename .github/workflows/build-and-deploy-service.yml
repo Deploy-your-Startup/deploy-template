@@ -30,6 +30,11 @@ on:
         required: false
         default: false
         type: boolean
+      coverage_measured_from:
+        description: "Test suites measured by the service coverage command (e.g. Integration)"
+        required: false
+        default: ""
+        type: string
       platforms:
         description: "Comma‑separated list of target platforms (e.g. linux/amd64,linux/arm64)"
         required: false
@@ -126,6 +131,7 @@ jobs:
         with:
           required: ${{ inputs.require_coverage }}
           title: "Coverage: ${{ inputs.service }}"
+          measured_from: ${{ inputs.coverage_measured_from }}
           comment_key: ${{ inputs.service }}
           files: ${{ inputs.service }}=${{ steps.test.outputs.coverage_file }}
 
