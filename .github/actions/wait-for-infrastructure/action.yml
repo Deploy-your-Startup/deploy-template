@@ -1,6 +1,7 @@
 name: "Wait for infrastructure"
 description: >-
-  Require the latest infrastructure run for this branch to succeed before deploying.
+  Require successful infrastructure for this branch, accepting a previous deployment
+  when infrastructure run history is unavailable.
 inputs:
   timeout_minutes:
     description: "Fail if infrastructure is not successful within this many minutes"
