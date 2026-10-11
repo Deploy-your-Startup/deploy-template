@@ -1,0 +1,11 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: oauth2-proxy
+  namespace: "{{ k8s_namespace | default('default') }}"
+spec:
+  selector:
+    app: oauth2-proxy
+  ports:
+    - port: 80
+      targetPort: 4180
