@@ -174,6 +174,8 @@ def test_kpis_project_overrides_reach_manifests_and_public_api():
 
 @pytest.mark.parametrize('overrides', [
     {'kpis_website_id': 'not-a-uuid'}, {'kpis_website_id': ''},
+    {'kpis_access_mode': 'automatic'},
+    {'kpis_access_mode': 'oauth2_proxy'},
     {'kpis_admin_password': 'x' * 15}, {'kpis_db_password': ''}, {'kpis_app_secret': ''},
 ])
 def test_kpis_safety_assert_rejects_unsafe_configuration(overrides):
@@ -218,7 +220,7 @@ def test_kpis_bootstrap_replaces_default_password_before_public_ingress():
         uri = task.get('ansible.builtin.uri', {})
         if uri.get('url', '').startswith('http:'):
             assert uri['use_proxy'] is False
-            assert '{{ kpis_service.resources[0].spec.clusterIP }}' in uri['url']
+            assert '{{ kpis_service.resources[0].spec.clusterIP }}' in uri['url'] or uri['url'].endswith('/oauth2/auth')
         if uri.get('body') or uri.get('headers') or 'ansible.builtin.assert' in task or task['name'] == 'Apply kpis secret':
             assert task['no_log'] is True
     assert tasks[1]['diff'] is False

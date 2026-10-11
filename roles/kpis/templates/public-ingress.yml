@@ -1,0 +1,34 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kpis-public
+  namespace: "{{ k8s_namespace | default('default') }}"
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: "{{ k8s_namespace | default('default') }}-redirect-to-https@kubernetescrd"
+spec:
+  tls:
+    - hosts:
+        - {{ kpis_host }}
+      secretName: kpis-tls
+  rules:
+    - host: {{ kpis_host }}
+      http:
+        paths:
+{% for path in (['/api/heartbeat'] if kpis_bootstrap_only | default(false) else ['/script.js', '/api/send', '/api/heartbeat']) %}
+          - path: {{ path }}
+            pathType: Exact
+            backend:
+              service:
+                name: kpis
+                port:
+                  number: 80
+{% endfor %}
+{% if kpis_access_mode == 'oauth2_proxy' and not kpis_bootstrap_only | default(false) %}
+          - path: /oauth2/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ kpis_oauth2_proxy_service }}
+                port:
+                  number: {{ kpis_oauth2_proxy_port }}
+{% endif %}

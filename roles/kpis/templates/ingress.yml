@@ -5,7 +5,7 @@ metadata:
   namespace: "{{ k8s_namespace | default('default') }}"
   annotations:
     cert-manager.io/issuer: "letsencrypt-prod"
-    traefik.ingress.kubernetes.io/router.middlewares: "{{ k8s_namespace | default('default') }}-redirect-to-https@kubernetescrd"
+    traefik.ingress.kubernetes.io/router.middlewares: "{{ k8s_namespace | default('default') }}-redirect-to-https@kubernetescrd{% if kpis_access_mode == 'oauth2_proxy' and not kpis_bootstrap_only | default(false) %},{{ k8s_namespace | default('default') }}-kpis-reader@kubernetescrd{% endif %}"
 spec:
   tls:
     - hosts:

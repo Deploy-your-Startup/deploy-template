@@ -475,3 +475,18 @@ requires a valid Cobertura report, and publishes a summary, PR comment and
 Browser coverage is enabled explicitly by the application's E2E harness.
 
 This is a tested service contract, not an architecture decision.
+
+### KPI access integration and browser checks
+
+With Docker running, install the pinned test dependencies and browser once:
+
+```bash
+uv sync --locked
+uv run --locked playwright install chromium
+mise run check
+```
+
+The KPI checks use the actual Umami/Postgres images, OAuth2 Proxy and Traefik.
+A local OIDC provider replaces the external identity-provider boundary. They
+cover session reuse, direct login, anonymous/forged-header denial, public
+collection, read-only permissions and switching back to password access.
