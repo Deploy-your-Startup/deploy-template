@@ -92,8 +92,8 @@ Contributor conventions live in [AGENTS.md](AGENTS.md).
     `<service>/coverage/cobertura.xml`
   - Adds line and branch rates to the job summary and keeps one pull request
     comment per service up to date
-  - Skips services without a coverage file; never fails the job and enforces no
-    threshold
+  - Optional by default; `required: true` fails on missing or invalid reports.
+    No percentage threshold is enforced
   - Uses a small Python script in this repository; no third-party action or
     external coverage service
 
@@ -463,3 +463,15 @@ For projects pinned before the complete standalone exporter was introduced,
 choose a reviewed owner-repository revision containing that exporter before
 adding the standalone pre-deploy checksum check. A runtime-equivalent commit
 can change the action implementation while leaving the role checksum unchanged.
+
+## Coverage harness contract
+
+Services keep normal local `./make.sh test` runs unmeasured. `./make.sh coverage`
+runs measured integration tests and writes `coverage/cobertura.xml` with paths
+relative to the service. The reusable build workflow accepts
+`require_coverage: true` alongside `run_tests: true`; it calls the coverage verb,
+requires a valid Cobertura report, and publishes a summary, PR comment and
+`coverage-<service>` artifact. Existing callers remain optional by default.
+Browser coverage is enabled explicitly by the application's E2E harness.
+
+This is a tested service contract, not an architecture decision.

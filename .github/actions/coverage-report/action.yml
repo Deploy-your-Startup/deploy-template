@@ -1,12 +1,16 @@
 name: "Coverage report"
 description: >-
   Add Cobertura coverage files to the job summary and a sticky pull request
-  comment. Files that do not exist are skipped; the step never fails the job.
+  comment. Required mode fails on missing or invalid reports.
 inputs:
   files:
     description: >-
       One NAME=PATH pair per line, for example `backend=backend/coverage/cobertura.xml`.
     required: true
+  required:
+    description: 'Fail if any configured report is missing or invalid'
+    required: false
+    default: 'false'
   title:
     description: "Heading of the summary and the comment"
     required: false
@@ -26,9 +30,12 @@ runs:
       shell: "bash"
       env:
         GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
+        COVERAGE_REQUIRED: ${{ inputs.required }}
         COVERAGE_FILES: ${{ inputs.files }}
         COVERAGE_TITLE: ${{ inputs.title }}
         COVERAGE_KEY: ${{ inputs.comment_key }}
       run: |
         mapfile -t files < <(printf '%s\n' "$COVERAGE_FILES" | sed '/^[[:space:]]*$/d')
-        python3 "${{ github.action_path }}/report.py" --title "$COVERAGE_TITLE" ${COVERAGE_KEY:+--key "$COVERAGE_KEY"} "${files[@]}"
+        required_args=()
+        if [ "$COVERAGE_REQUIRED" = true ]; then required_args+=(--required); fi
+        python3 "${{ github.action_path }}/report.py" --title "$COVERAGE_TITLE" ${COVERAGE_KEY:+--key "$COVERAGE_KEY"} "${required_args[@]}" "${files[@]}"

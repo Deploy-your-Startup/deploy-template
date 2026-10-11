@@ -25,6 +25,11 @@ on:
         required: false
         default: false
         type: boolean
+      require_coverage:
+        description: "Require a valid coverage/cobertura.xml from ./make.sh coverage"
+        required: false
+        default: false
+        type: boolean
       platforms:
         description: "Comma‑separated list of target platforms (e.g. linux/amd64,linux/arm64)"
         required: false
@@ -79,6 +84,12 @@ jobs:
           --health-retries 5
 
     steps:
+      - name: "Validate coverage configuration"
+        if: ${{ inputs.require_coverage && !inputs.run_tests }}
+        run: |
+          echo "::error::require_coverage needs run_tests=true"
+          exit 1
+
       - name: "Setup environment"
         uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/setup-environment@main
 
@@ -105,16 +116,26 @@ jobs:
           additional_build_context: ${{ inputs.additional_build_context }}
           run_tests: ${{ inputs.run_tests }}
           run_lint: ${{ inputs.run_lint }}
+          require_coverage: ${{ inputs.require_coverage }}
 
-      # Optional: only services whose `./make.sh test` writes
-      # coverage/cobertura.xml get a row. No threshold is enforced.
+      # Required coverage validates the report before publishing. No percentage
+      # threshold is enforced; existing services remain opt-in.
       - name: "Report coverage"
         if: ${{ steps.test.outputs.coverage_file != '' }}
         uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/coverage-report@main
         with:
+          required: ${{ inputs.require_coverage }}
           title: "Coverage: ${{ inputs.service }}"
           comment_key: ${{ inputs.service }}
           files: ${{ inputs.service }}=${{ steps.test.outputs.coverage_file }}
+
+      - name: "Upload coverage"
+        if: ${{ steps.test.outputs.coverage_file != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ inputs.service }}
+          path: ${{ steps.test.outputs.coverage_file }}
+          if-no-files-found: error
 
       - name: "Build and Push Docker Image"
         uses: docker/build-push-action@v7
