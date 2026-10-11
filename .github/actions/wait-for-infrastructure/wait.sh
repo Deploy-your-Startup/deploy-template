@@ -32,6 +32,23 @@ while :; do
       queued|in_progress|waiting|pending|requested) ;;
       *) echo "::error::Unexpected infrastructure run response."; exit 1 ;;
     esac
+  elif [ -f .github/workflows/deploy.yml ]; then
+    # Existing projects may have been provisioned locally, or their infrastructure
+    # run may have expired. A successful application deployment is durable enough
+    # evidence while retained by GitHub; never override an actual infrastructure run.
+    if ! deployed="$(gh api \
+      "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy.yml/runs?branch=${GITHUB_REF_NAME}&status=success&per_page=100" \
+      --jq '.workflow_runs | map(select(.conclusion == "success" and (.event == "push" or .event == "workflow_dispatch"))) | if length == 0 then "none" else .[0].id | tostring end' 2>/dev/null)"; then
+      echo "::error::Cannot read previous deployments. Check GitHub availability and actions: read permissions."
+      exit 1
+    fi
+    if [[ "$deployed" =~ ^[0-9]+$ ]]; then
+      echo "Deployment run $deployed succeeded; existing infrastructure is already provisioned."
+      exit 0
+    elif [ "$deployed" != none ]; then
+      echo "::error::Unexpected deployment run response."
+      exit 1
+    fi
   fi
   if [ "$SECONDS" -ge "$deadline" ]; then
     echo "::error::No successful infrastructure run within ${STARTUP_WAIT_MINUTES:-30} minutes. Deployment stopped."
