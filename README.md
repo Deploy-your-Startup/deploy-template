@@ -92,6 +92,8 @@ Contributor conventions live in [AGENTS.md](AGENTS.md).
     `<service>/coverage/cobertura.xml`
   - Adds line and branch rates to the job summary and keeps one pull request
     comment per service up to date
+  - Shows the supplied `measured_from` test suites beside each service;
+    reports without this label show `Not specified`
   - Optional by default; `required: true` fails on missing or invalid reports.
     No percentage threshold is enforced
   - Uses a small Python script in this repository; no third-party action or
@@ -473,6 +475,15 @@ relative to the service. The reusable build workflow accepts
 requires a valid Cobertura report, and publishes a summary, PR comment and
 `coverage-<service>` artifact. Existing callers remain optional by default.
 Browser coverage is enabled explicitly by the application's E2E harness.
+
+Set `coverage_measured_from: Integration` on a reusable build workflow caller
+to label the measured test suites. Direct callers of the `coverage-report`
+action use `measured_from`, for example `Integration + E2E` for combined data,
+`E2E`, `Unit` or `Component`. This label applies to every report supplied in
+that action call; use separate calls when reports measure different suites.
+The reporter does not infer test types from Cobertura or the report title.
+Only label suites whose execution contributed to the coverage data. A combined
+report measures the union of covered code, not the sum of suite percentages.
 
 This is a tested service contract, not an architecture decision.
 

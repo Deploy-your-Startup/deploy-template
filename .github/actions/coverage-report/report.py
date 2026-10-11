@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Report Cobertura coverage files in the job summary and a sticky PR comment.
 
-Usage: report.py [--title TITLE] [--key KEY] NAME=PATH [NAME=PATH ...]
+Usage: report.py [--title TITLE] [--key KEY] [--measured-from SUITES] NAME=PATH [NAME=PATH ...]
 
 Reads only Cobertura XML, the file every service's `./make.sh test` may write
 to `<service>/coverage/cobertura.xml`; it never learns which language or tool
 produced it. A missing file is skipped silently, so services without coverage
 need no configuration. With --required, missing or invalid reports fail the job. Refused GitHub API
 calls remain warnings; the job summary still contains the report.
+The caller declares the measured suites with --measured-from; otherwise the
+report shows "Not specified". The declaration applies to every supplied file.
 
 Environment (set by GitHub Actions): GITHUB_STEP_SUMMARY, GITHUB_EVENT_PATH,
 GITHUB_REPOSITORY, GITHUB_API_URL, GITHUB_SHA, GITHUB_TOKEN.
@@ -84,11 +86,12 @@ def read_cobertura(name: str, path: Path) -> Coverage | None:
         return None
 
 
-def render(title: str, reports: list[Coverage]) -> str:
-    rows = "\n".join(f"| {report.name} | {report.lines.render()} | {report.branches.render()} |" for report in reports)
+def render(title: str, reports: list[Coverage], measured_from: str) -> str:
+    measured_from = measured_from.replace("\r", " ").replace("\n", " ").replace("|", "&#124;")
+    rows = "\n".join(f"| {report.name} | {measured_from} | {report.lines.render()} | {report.branches.render()} |" for report in reports)
     commit = os.environ.get("GITHUB_SHA", "")[:7]
     footer = f"\n\n<sub>Cobertura report for {commit}. No threshold is enforced.</sub>" if commit else ""
-    return f"### {title}\n\n| Service | Lines | Branches |\n|---|---:|---:|\n{rows}{footer}\n"
+    return f"### {title}\n\n| Service | Measured from | Lines | Branches |\n|---|---|---:|---:|\n{rows}{footer}\n"
 
 
 def pull_request_number() -> int | None:
@@ -145,6 +148,7 @@ def upsert_comment(number: int, marker: str, body: str) -> None:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--title", default="Coverage")
+    parser.add_argument("--measured-from", default="", help="test suites that produced these reports, e.g. Integration + E2E")
     parser.add_argument("--key", help="identifies the sticky comment; defaults to the title")
     parser.add_argument("files", nargs="*", metavar="NAME=PATH")
     parser.add_argument("--required", action="store_true", help="fail on missing or invalid reports")
@@ -173,7 +177,7 @@ def main(argv: list[str]) -> int:
     if not reports:
         return 0
 
-    markdown = render(arguments.title, reports)
+    markdown = render(arguments.title, reports, arguments.measured_from.strip() or "Not specified")
     print(markdown)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
