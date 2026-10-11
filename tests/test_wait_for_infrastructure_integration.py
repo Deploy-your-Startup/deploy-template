@@ -8,7 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def launch(tmp_path, responses, *, minutes="1", byos=False, managed=True):
+def launch(tmp_path, responses, *, minutes="1", byos=False, managed=True, deployed="none"):
     directory = tmp_path / "bin"
     directory.mkdir()
     (tmp_path / "responses").write_text("\n".join(responses) + "\n")
@@ -16,6 +16,12 @@ def launch(tmp_path, responses, *, minutes="1", byos=False, managed=True):
     gh.write_text('''#!/usr/bin/env python3
 import os,pathlib
 root=pathlib.Path(os.environ['WAIT_TEST_ROOT'])
+if '/deploy.yml/runs?' in ' '.join(__import__('sys').argv):
+    (root/'deployment-query').write_text('queried')
+    value=os.environ['WAIT_TEST_DEPLOYED']
+    if value=='API_ERROR': raise SystemExit(1)
+    print(value)
+    raise SystemExit(0)
 counter=root/'counter'
 i=int(counter.read_text()) if counter.exists() else 0
 counter.write_text(str(i+1))
@@ -32,6 +38,7 @@ print(value)
     workflows.mkdir(parents=True)
     if managed:
         (workflows / "deploy-infrastructure.yml").write_text("name: Infrastructure\n")
+        (workflows / "deploy.yml").write_text("name: Deploy\n")
     if byos:
         (tmp_path / "deployment").mkdir()
         (tmp_path / "deployment/inventory.byos.yml").write_text("all: {}\n")
@@ -39,7 +46,7 @@ print(value)
         ["bash", str(ROOT / ".github/actions/wait-for-infrastructure/wait.sh")],
         cwd=tmp_path, text=True, capture_output=True, timeout=10,
         env={**os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"],
-             "WAIT_TEST_ROOT": str(tmp_path), "STARTUP_WAIT_MINUTES": minutes,
+             "WAIT_TEST_ROOT": str(tmp_path), "WAIT_TEST_DEPLOYED": deployed, "STARTUP_WAIT_MINUTES": minutes,
              "GITHUB_REPOSITORY": "example/startup", "GITHUB_REF_NAME": "main"},
     )
 
@@ -82,3 +89,31 @@ def test_unmanaged_projects_do_not_query_infrastructure(tmp_path, byos, managed)
     result = launch(tmp_path, ["API_ERROR"], byos=byos, managed=managed)
     assert result.returncode == 0
     assert not (tmp_path / "counter").exists()
+
+
+def test_existing_deployment_without_infrastructure_history_proceeds(tmp_path):
+    # GIVEN a successfully deployed project whose infrastructure history expired
+    # WHEN the real deployment gate runs
+    result = launch(tmp_path, ["none"], minutes="0", deployed="123")
+    # THEN the existing deployment establishes that provisioning already completed
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Deployment run 123" in result.stdout
+
+
+@pytest.mark.parametrize("response", ["API_ERROR", "garbled"])
+def test_existing_deployment_lookup_fails_closed(tmp_path, response):
+    # GIVEN missing infrastructure history and unreadable deployment evidence
+    # WHEN the real deployment gate runs
+    result = launch(tmp_path, ["none"], minutes="0", deployed=response)
+    # THEN it cannot silently permit deployment
+    assert result.returncode == 1
+
+
+@pytest.mark.parametrize("response", ["42\tcompleted\tfailure", "42\tin_progress\tpending"])
+def test_existing_deployment_does_not_override_infrastructure(tmp_path, response):
+    # GIVEN a previously deployed project with failed or active provisioning
+    # WHEN the real deployment gate runs
+    result = launch(tmp_path, [response], minutes="0", deployed="123")
+    # THEN current provisioning still blocks deployment
+    assert result.returncode == 1
+    assert not (tmp_path / "deployment-query").exists()
