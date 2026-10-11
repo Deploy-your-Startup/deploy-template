@@ -197,7 +197,9 @@ def reader_edge(umami, tmp_path):
                '--cookie-secret=YWJvdXQtcGhpbC1sb2NhbC1kZXYtY29va2llLWtleSE=',
                '--cookie-secure=true', '--email-domain=*', '--reverse-proxy=true',
                f'--redirect-url={app_origin}/oauth2/callback', '--whitelist-domain=localhost:*',
-               '--upstream=http://umami:3000', '--skip-auth-route=!=^/private_api',
+               '--upstream=http://umami:3000', '--skip-jwt-bearer-tokens=true',
+               '--extra-jwt-issuers=http://oidc:8080/default=startup-api',
+               '--pass-authorization-header=true', '--skip-auth-route=!=^/private_api',
                '--skip-auth-route=OPTIONS=^/private_api')
         created.append(proxy)
         for _ in range(60):
@@ -303,6 +305,10 @@ def test_oauth_reader_reuses_session_blocks_bypasses_and_keeps_tracking_public(r
         expect(page.get_by_text('reader-startup', exact=True).first).to_be_visible()
         expect(page.get_by_text('Visitors', exact=True).first).to_be_visible()
         assert page.locator('input[name="password"]').count() == 0
+        # Umami's own bearer token must stay at Umami; forwarding it to the
+        # OIDC proxy would reject legitimate administration as an invalid JWT.
+        admin_headers = {'Authorization': 'Bearer ' + values['kpis_login']['json']['token']}
+        assert context.request.get(origin + '/api/websites', headers=admin_headers).status == 200
         share = context.request.get(origin + '/api/share/' + values['kpis_website_id']).json()
         assert share['websiteId'] == values['kpis_website_id']
         assert context.request.post(origin + '/api/websites/' + values['kpis_website_id'],
