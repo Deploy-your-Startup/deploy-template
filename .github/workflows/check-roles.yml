@@ -28,3 +28,23 @@ jobs:
         env:
           STARTUP_REQUIRE_DOCKER_TESTS: '1'
         run: ./make.sh test
+
+      - name: GIVEN an older role pin while the shared checkout has advanced
+        run: |
+          mkdir -p deployment
+          echo a9e785324a2574989b943231cd29157193a67c12 > deployment/shared-roles.ref
+      - name: WHEN exporting the project's reviewed runtime through native GitHub actions
+        uses: ./.github/actions/export-shared-roles
+        with:
+          destination: deployment/.shared-roles
+      - name: THEN the export matches the old pin, including every runtime playbook
+        run: |
+          git fetch --depth=1 origin a9e785324a2574989b943231cd29157193a67c12
+          expected="$(mktemp -d)"
+          git archive FETCH_HEAD | tar -x -C "$expected"
+          diff -r "$expected/roles" deployment/.shared-roles/roles
+          for file in ansible.cfg requirements.yml inventory.ini inventory.hcloud.yml backup-playbook.yml restore-playbook.yml update-vms-playbook.yml os-upgrade-playbook.yml k3s-upgrade-playbook.yml; do
+            if [ -f "$expected/$file" ]; then
+              cmp "$expected/$file" "deployment/.shared-roles/$file"
+            fi
+          done

@@ -450,3 +450,16 @@ CI requires them. Before adding a supported path or releasing it for production,
 also qualify a real disposable k3s deployment, including release availability,
 SSH/reboot recovery, storage, networking and application HTTPS checks. Local
 integration success alone is not live release compatibility.
+
+### Immutable runtime in Actions
+
+When `deployment/shared-roles.ref` exists, deployment and runtime export execute
+the shared action at that exact owner-repository commit. Advancing the shared
+repository's `main` does not replace a project's reviewed roles. The CLI still
+checks `shared-roles.sha256` before Ansible runs. Projects without a pin retain
+the action's current runtime. Review a new pin before adopting role changes.
+
+For projects pinned before the complete standalone exporter was introduced,
+choose a reviewed owner-repository revision containing that exporter before
+adding the standalone pre-deploy checksum check. A runtime-equivalent commit
+can change the action implementation while leaving the role checksum unchanged.
