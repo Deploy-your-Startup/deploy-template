@@ -50,6 +50,50 @@ group_vars as needed. `k8s_namespace` defaults to `default` when absent.
 Provide DNS for the host, the namespace's `letsencrypt-prod` issuer and
 `redirect-to-https` middleware.
 
+## Dashboard access
+
+`kpis_access_mode: password` is the default. It keeps Umami's normal login and
+works without any OAuth2 Proxy, including a Django-only application. No OAuth
+middleware or CRD is required in this mode. KPI tracking itself remains opt-in.
+
+To reuse an existing proxy session, configure:
+
+```yaml
+kpis_enabled: true
+kpis_access_mode: oauth2_proxy
+oauth2_proxy_enabled: true
+```
+
+The existing `oauth2-proxy` Service must run in the same namespace, its session
+cookie must cover the KPI host, and its redirect allowlist must permit that host.
+The shared proxy's `.{{ base_domain }}` defaults meet these requirements. No
+additional proxy pod or identity-provider callback is created. Authentication
+continues through the existing application's callback.
+
+Traefik protects the entire KPI UI and data API via the existing proxy. Visiting
+`https://kpis.example.com/` opens a read-only traffic and events share after login.
+Every user accepted by that proxy can read the metrics; this mode does not map
+OAuth users to Umami accounts or grant administration. Visit `/login` and use an
+Umami admin account for configuration. The exact collector paths `/script.js`,
+`/api/send` and `/api/heartbeat` remain public for anonymous tracking.
+
+The role manages only the share identified by `kpis_share_id` (defaults to the
+website UUID). Switching back to `password` revokes that managed share before
+publishing the normal login so it cannot become an anonymous data link. Other
+shares and website data are preserved. Keep the website ID stable.
+
+For custom proxy setups, override `kpis_oauth2_proxy_service` (default
+`oauth2-proxy`), `kpis_oauth2_proxy_port` (`80`) and
+`kpis_oauth2_proxy_auth_path` (`/private_api`). The auth path must require login
+in that proxy. The role verifies that an anonymous `/oauth2/auth` request using
+this path is rejected before creating or publishing a reader. Traefik replaces
+forwarded headers before the auth subrequest so public backend routes and forged
+headers cannot bypass authentication. The OAuth mode requires Traefik's
+`traefik.io/v1alpha1` Middleware CRD.
+
+After `startup sync`, review and commit the new immutable role pin and matching
+workflow references. Existing projects do not adopt this feature just by syncing.
+
 ## Safe first run
 
 Before applying anything, the role validates the website UUID and secrets.
