@@ -265,7 +265,8 @@ def reader_edge(umami, tmp_path, request):
         else:
             pytest.fail('The rendered Traefik reader edge did not become ready')
         yield {'origin': origin, 'app_origin': app_origin, 'values': values,
-               'configuration': configuration, 'config_path': tmp_path / 'dynamic.yml'}
+               'configuration': configuration, 'config_path': tmp_path / 'dynamic.yml',
+               'session_email': getattr(request, 'param', 'reader@example.test')}
     finally:
         for container in reversed(created):
             docker('rm', '-f', '-v', container, check=False)
