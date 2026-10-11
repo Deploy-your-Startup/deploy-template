@@ -70,6 +70,9 @@ def read_cobertura(name: str, path: Path) -> Coverage | None:
     except (ElementTree.ParseError, ValueError) as error:
         warn(f"{name}: {path} is not a Cobertura file ({error}); skipped.")
         return None
+    except OSError as error:
+        warn(f"{name}: {path} cannot be read ({error}); skipped.")
+        return None
 
 
 def render(title: str, reports: list[Coverage]) -> str:

@@ -81,8 +81,8 @@ Contributor conventions live in [AGENTS.md](AGENTS.md).
   - Builds Docker image up to the test stage
   - Runs tests in a container with database connection
   - Uses make.sh script for test execution
-  - Mounts the service's `coverage/` directory out of the container and returns
-    `coverage_file` when `./make.sh test` wrote `coverage/cobertura.xml`
+  - Copies `coverage/cobertura.xml` out of the test container and returns
+    `coverage_file` when `./make.sh test` wrote it
 
 ### Coverage Report Action
 - **Location**: `.github/actions/coverage-report/action.yml`

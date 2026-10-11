@@ -198,6 +198,21 @@ def test_refused_comment_keeps_the_job_green(tmp_path, github):
     assert "| backend |" in summary
 
 
+def test_unreadable_file_is_skipped_with_a_warning(tmp_path, github):
+    # GIVEN a coverage file the runner may not read
+    if os.geteuid() == 0:
+        pytest.skip("root reads every file")
+    api = github()
+    unreadable = write_cobertura(tmp_path / "backend/coverage/cobertura.xml")
+    unreadable.chmod(0)
+    # WHEN it is reported
+    result, summary = report(tmp_path, api.url, "backend=backend/coverage/cobertura.xml")
+    # THEN the job stays green and the warning names the service
+    assert summary == ""
+    assert "::warning title=Coverage report::backend:" in result.stdout
+    assert "cannot be read" in result.stdout
+
+
 def test_file_that_is_not_cobertura_is_skipped_with_a_warning(tmp_path, github):
     # GIVEN one valid report and one file in another format
     api = github()
@@ -215,16 +230,20 @@ def test_file_that_is_not_cobertura_is_skipped_with_a_warning(tmp_path, github):
 
 
 def test_docker_test_brings_the_coverage_file_out_of_the_container(tmp_path):
-    # GIVEN a test image whose make.sh writes coverage/cobertura.xml as a non-root user
+    # GIVEN a test image whose make.sh recreates coverage/ as a non-root user
     require_docker()
     service = tmp_path / "service"
     service.mkdir()
     (service / "make.sh").write_text(
-        "#!/bin/sh\nset -e\ntest \"$1\" = test\ntest -n \"$DATABASE_URL\"\nmkdir -p coverage\n"
+        "#!/bin/sh\nset -e\ntest \"$1\" = test\ntest -n \"$DATABASE_URL\"\n"
+        # Like many coverage tools: delete and recreate the report directory,
+        # then write a file only its owner may read.
+        "rm -rf coverage\nmkdir coverage\numask 077\n"
         "printf '<coverage lines-valid=\"4\" lines-covered=\"3\" line-rate=\"0.75\"/>' > coverage/cobertura.xml\n"
     )
     (service / "make.sh").chmod(0o755)
-    (service / "Dockerfile").write_text("FROM busybox:1.37\nWORKDIR /srv/app\nCOPY make.sh .\nUSER 1234\n")
+    (service / "Dockerfile").write_text(
+        "FROM busybox:1.37\nWORKDIR /srv/app\nCOPY make.sh .\nRUN chown 1234 /srv/app\nUSER 1234\n")
     image = f"startup-coverage-check:{os.getpid()}"
     built = subprocess.run(["docker", "build", "-q", "-t", image, str(service)], capture_output=True, text=True, timeout=240)
     assert built.returncode == 0, built.stderr
@@ -261,8 +280,11 @@ def test_failing_tests_still_fail_the_step(tmp_path):
             ["bash", str(ROOT / ".github/actions/docker-test/run-tests.sh"), image, "postgres://db/test", str(tmp_path / "out")],
             capture_output=True, text=True, timeout=240,
         )
-        # THEN the failure reaches the workflow and no coverage file appears
+        # THEN the failure reaches the workflow, no coverage file appears and
+        # the container is removed
         assert result.returncode == 1
+        leftover = subprocess.run(["docker", "ps", "-aq", "--filter", f"ancestor={image}"], capture_output=True, text=True)
+        assert leftover.stdout.strip() == ""
         assert "FAILED test_login" in result.stdout
         assert not (tmp_path / "out/cobertura.xml").exists()
     finally:
