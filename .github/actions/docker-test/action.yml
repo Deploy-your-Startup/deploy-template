@@ -37,9 +37,9 @@ inputs:
     default: ''
   coverage_dir:
     description: >-
-      Host directory mounted over `coverage/` in the container's working
-      directory while `./make.sh test` runs. Defaults to a directory below
-      runner.temp.
+      Host directory that receives `coverage/cobertura.xml` from the
+      container's working directory after `./make.sh test`. Defaults to a
+      directory below runner.temp.
     required: false
     default: ''
 
@@ -81,7 +81,7 @@ runs:
         set -e
         docker run --rm test-image:${{ inputs.tag }} ./make.sh lint
 
-    # The coverage directory is the only thing that leaves the container; the
+    # The coverage file is the only thing that leaves the container; the
     # report step reads it as Cobertura and never learns the test tooling.
     - name: Run tests in container
       id: test
