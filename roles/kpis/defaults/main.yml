@@ -1,0 +1,11 @@
+kpis_version: "3.4.0"
+kpis_db_name: kpis_db
+kpis_db_user: kpis_db_user
+
+kpis_host: "kpis.{{ base_domain }}"
+
+# Required public configuration and Vault values; fail safely when absent.
+kpis_website_id: ""
+kpis_db_password: ""
+kpis_app_secret: ""
+kpis_admin_password: ""

@@ -68,6 +68,164 @@ def test_every_role_has_valid_ansible_task_syntax():
     assert {role.get_name() for role in playbook.get_plays()[0].get_roles()} == {path.name for path in (ROOT / "roles").iterdir()}
 
 
+def kpis_variables(**overrides):
+    return {
+        **{key: trust_as_template(value) if isinstance(value, str) else value
+           for key, value in load('roles/kpis/defaults/main.yml').items()},
+        'base_domain': 'example.com', 'project_name': 'sample-startup',
+        'k8s_namespace': 'sample',
+        'ansible_date_time': {'iso8601_basic': '20261011T120000'},
+        'postgres_host': 'postgres', 'postgres_port': 5432, 'postgres_version': '18.6',
+        'kpis_website_id': '8d92b4ec-9a6a-4c50-85e4-b6ea4048f3f8',
+        'kpis_db_password': "TEST_DB_PASSWORD:/@'?#",
+        'kpis_app_secret': 'TEST_APP_SECRET',
+        'kpis_admin_password': 'TEST_ADMIN_PASSWORD',
+        **overrides,
+    }
+
+
+def kpis_guard_allows(variables):
+    guard = load('roles/kpis/tasks/main.yml')[0]['ansible.builtin.assert']
+    return all(templar(variables).evaluate_expression(trust_as_template(expression))
+               for expression in guard['that'])
+
+
+@pytest.mark.parametrize('namespace', ['sample', None])
+def test_kpis_render_preserves_secret_credentials_and_safe_ingress(namespace):
+    # GIVEN shared-role defaults and a project's database and website configuration,
+    variables = kpis_variables()
+    if namespace is None:
+        del variables['k8s_namespace']
+    assert kpis_guard_allows(variables)
+    # WHEN Ansible renders every actual manifest and both bootstrap ingress states,
+    deployment_text = render('roles/kpis/templates/deployment.yml', variables)
+    deployment = yaml.safe_load(deployment_text)
+    secret = yaml.safe_load(render('roles/kpis/templates/secret.yml', variables))
+    service = yaml.safe_load(render('roles/kpis/templates/service.yml', variables))
+    ingress = yaml.safe_load(render('roles/kpis/templates/ingress.yml', variables))
+    bootstrap = yaml.safe_load(render('roles/kpis/templates/ingress.yml', {
+        **variables, 'kpis_bootstrap_only': True,
+    }))
+    pod = deployment['spec']['template']['spec']
+    container = pod['containers'][0]
+    # THEN the pinned upstream image uses Secret credentials and heartbeat probes.
+    assert container['image'] == 'ghcr.io/umami-software/umami:3.4.0'
+    assert pod['initContainers'][0]['image'] == 'postgres:18.6'
+    assert container['envFrom'] == [{'secretRef': {'name': secret['metadata']['name']}}]
+    assert container['env'] == [{'name': 'DISABLE_TELEMETRY', 'value': '1'}]
+    assert 'args' not in container and 'command' not in container
+    assert secret['stringData'] == {
+        'DATABASE_URL': 'postgresql://kpis_db_user:TEST_DB_PASSWORD%3A%2F%40%27%3F%23@postgres:5432/kpis_db',
+        'APP_SECRET': variables['kpis_app_secret'],
+        'KPIS_DB_PASSWORD': variables['kpis_db_password'],
+    }
+    for key in ('kpis_db_password', 'kpis_app_secret', 'kpis_admin_password'):
+        assert variables[key] not in deployment_text
+    init_env = {item['name']: item for item in pod['initContainers'][0]['env']}
+    assert init_env['PGPASSWORD']['valueFrom']['secretKeyRef'] == {'name': 'postgres', 'key': 'admin_password'}
+    assert init_env['KPIS_DB_PASSWORD']['valueFrom']['secretKeyRef'] == {'name': 'kpis', 'key': 'KPIS_DB_PASSWORD'}
+    for probe in ('livenessProbe', 'readinessProbe'):
+        assert container[probe]['httpGet'] == {'path': '/api/heartbeat', 'port': 3000}
+    assert container['resources']['limits']['memory'] == '512Mi'
+    # THEN every object follows the namespace and only heartbeat is public at first.
+    for manifest in (deployment, secret, service, ingress, bootstrap):
+        assert manifest['metadata']['name'] == 'kpis'
+        assert manifest['metadata']['namespace'] == (namespace or 'default')
+    assert service['spec']['selector'] == deployment['spec']['selector']['matchLabels']
+    assert service['spec']['ports'] == [{'port': 80, 'targetPort': 3000}]
+    for manifest in (ingress, bootstrap):
+        assert manifest['spec']['rules'][0]['host'] == 'kpis.example.com'
+        assert manifest['spec']['tls'] == [{'hosts': ['kpis.example.com'], 'secretName': 'kpis-tls'}]
+        assert manifest['metadata']['annotations']['cert-manager.io/issuer'] == 'letsencrypt-prod'
+        assert manifest['metadata']['annotations']['traefik.ingress.kubernetes.io/router.middlewares'] == (namespace or 'default') + '-redirect-to-https@kubernetescrd'
+    backend = {'service': {'name': 'kpis', 'port': {'number': 80}}}
+    assert bootstrap['spec']['rules'][0]['http']['paths'] == [
+        {'path': '/api/heartbeat', 'pathType': 'Exact', 'backend': backend},
+    ]
+    assert ingress['spec']['rules'][0]['http']['paths'] == [
+        {'path': '/', 'pathType': 'Prefix', 'backend': backend},
+    ]
+
+
+def test_kpis_project_overrides_reach_manifests_and_public_api():
+    # GIVEN a consuming project with a custom host, image pin and database names,
+    variables = kpis_variables(kpis_host='metrics.example.com', kpis_version='3.4.1',
+                               kpis_db_name='sample_metrics', kpis_db_user='sample_metrics_user')
+    # WHEN Ansible renders the actual templates and public API tasks,
+    deployment = yaml.safe_load(render('roles/kpis/templates/deployment.yml', variables))
+    secret = yaml.safe_load(render('roles/kpis/templates/secret.yml', variables))
+    ingress = yaml.safe_load(render('roles/kpis/templates/ingress.yml', variables))
+    tasks = load('roles/kpis/tasks/main.yml')
+    public_urls = [task['ansible.builtin.uri']['url'] for task in tasks
+                   if task.get('ansible.builtin.uri', {}).get('url', '').startswith('https:')]
+    # THEN project configuration reaches the pod, TLS and every public API URL.
+    assert deployment['spec']['template']['spec']['containers'][0]['image'].endswith(':3.4.1')
+    assert secret['stringData']['DATABASE_URL'].startswith('postgresql://sample_metrics_user:')
+    assert secret['stringData']['DATABASE_URL'].endswith('/sample_metrics')
+    assert ingress['spec']['rules'][0]['host'] == 'metrics.example.com'
+    assert ingress['spec']['tls'][0]['hosts'] == ['metrics.example.com']
+    assert len(public_urls) == 4
+    assert all(templar(variables).template(trust_as_template(url)).startswith('https://metrics.example.com/')
+               for url in public_urls)
+    website = tasks[-1]['ansible.builtin.uri']['body']
+    assert templar(variables).template(trust_as_template(website['name'])) == 'sample-startup'
+    assert templar(variables).template(trust_as_template(website['id'])) == variables['kpis_website_id']
+
+
+@pytest.mark.parametrize('overrides', [
+    {'kpis_website_id': 'not-a-uuid'}, {'kpis_website_id': ''},
+    {'kpis_admin_password': 'x' * 15}, {'kpis_db_password': ''}, {'kpis_app_secret': ''},
+])
+def test_kpis_safety_assert_rejects_unsafe_configuration(overrides):
+    # GIVEN an invalid website UUID, short admin password or missing secret,
+    variables = kpis_variables(**overrides)
+    # WHEN Ansible evaluates the actual first task's safety assertions,
+    # THEN configuration is rejected before applying any resource.
+    assert not kpis_guard_allows(variables)
+    tasks = load('roles/kpis/tasks/main.yml')
+    assert 'ansible.builtin.assert' in tasks[0]
+    assert tasks[0]['no_log'] is True
+    assert tasks[0]['ansible.builtin.assert']['quiet'] is True
+
+
+def test_kpis_bootstrap_replaces_default_password_before_public_ingress():
+    # GIVEN the actual role tasks loaded by Ansible's role syntax check,
+    tasks = load('roles/kpis/tasks/main.yml')
+    # WHEN inspecting the bootstrap sequence and evaluating its service lookup,
+    names = [task['name'] for task in tasks]
+    restrict = names.index('Restrict public ingress to heartbeat during bootstrap')
+    replace = names.index('Replace the default admin password before publishing the UI')
+    verify = names.index('Verify the configured admin password privately')
+    publish = names.index('Publish kpis ingress after the default login is disabled')
+    lookup = next(task['kubernetes.core.k8s_info'] for task in tasks if 'kubernetes.core.k8s_info' in task)
+    # THEN replacement and successful private verification precede full ingress.
+    assert restrict < names.index('Apply kpis deployment') < replace < verify < publish
+    assert tasks[restrict]['vars'] == {'kpis_bootstrap_only': True}
+    assert 'kpis_bootstrap_only' not in tasks[publish].get('vars', {})
+    assert templar(kpis_variables()).template(trust_as_template(lookup['namespace'])) == 'sample'
+    default_namespace_variables = kpis_variables()
+    del default_namespace_variables['k8s_namespace']
+    assert templar(default_namespace_variables).template(trust_as_template(lookup['namespace'])) == 'default'
+    assert tasks[replace]['when'] == 'kpis_initial_login.status == 200'
+    assert tasks[replace]['ansible.builtin.uri']['body'] == {
+        'currentPassword': 'umami', 'newPassword': '{{ kpis_admin_password }}',
+    }
+    assert tasks[verify]['ansible.builtin.uri']['body'] == {
+        'username': 'admin', 'password': '{{ kpis_admin_password }}',
+    }
+    assert tasks[verify]['ansible.builtin.uri']['status_code'] == 200
+    for task in tasks:
+        uri = task.get('ansible.builtin.uri', {})
+        if uri.get('url', '').startswith('http:'):
+            assert uri['use_proxy'] is False
+            assert '{{ kpis_service.resources[0].spec.clusterIP }}' in uri['url']
+        if uri.get('body') or uri.get('headers') or 'ansible.builtin.assert' in task or task['name'] == 'Apply kpis secret':
+            assert task['no_log'] is True
+    assert tasks[1]['diff'] is False
+    assert publish < names.index('Check for the configured website') < len(tasks) - 1
+    assert tasks[-1]['when'] == 'kpis_website.status == 404'
+
+
 def oauth2_proxy_variables(**overrides):
     return {
         **{key: trust_as_template(value) if isinstance(value, str) else value

@@ -15,6 +15,7 @@
     - ingress
     - k3s
     - kubernetes-client
+    - kpis
     - oauth2-proxy
     - os-upgrade
     - postgres
