@@ -3,6 +3,8 @@
     that:
       - kpis_access_mode in ['password', 'oauth2_proxy']
       - kpis_access_mode != 'oauth2_proxy' or oauth2_proxy_enabled | default(false) | bool
+      - kpis_access_mode != 'oauth2_proxy' or (kpis_allowed_emails is sequence and kpis_allowed_emails is not string and kpis_allowed_emails is not mapping and kpis_allowed_emails | length > 0)
+      - kpis_access_mode != 'oauth2_proxy' or kpis_allowed_emails | select('match', '^[a-zA-Z0-9._+%-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,63}$') | list | length == kpis_allowed_emails | length
       - kpis_share_id is match('^[a-zA-Z0-9_-]{1,100}$')
       - kpis_oauth2_proxy_auth_path is match('^/[a-zA-Z0-9/_-]+$')
       - kpis_website_id | default('') is match('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
