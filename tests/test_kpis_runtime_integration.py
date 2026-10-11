@@ -159,7 +159,7 @@ def free_port():
 
 
 @pytest.fixture
-def reader_edge(umami, tmp_path):
+def reader_edge(umami, tmp_path, request):
     # GIVEN the existing pinned OAuth2 Proxy, a local OIDC provider boundary,
     # real Umami, and the same Traefik version deployed by the factory.
     docker = umami['docker']
@@ -170,12 +170,13 @@ def reader_edge(umami, tmp_path):
     app_origin = f'https://localhost:{app_port}'
     config = {'interactiveLogin': True, 'tokenCallbacks': [{'issuerId': 'default',
               'requestMappings': [{'requestParam': 'grant_type', 'match': 'authorization_code',
-                                   'claims': {'email': 'reader@example.test', 'aud': ['startup-web']}}]}]}
+                                   'claims': {'email': getattr(request, 'param', 'reader@example.test'), 'aud': ['startup-web']}}]}]}
     (tmp_path / 'oidc.json').write_text(json.dumps(config))
     created = []
     values = {**trusted(yaml.safe_load((ROOT / 'roles/kpis/defaults/main.yml').read_text())),
               'kpis_service': {'resources': [{'spec': {'clusterIP': umami['address']}}]},
               'kpis_access_mode': 'oauth2_proxy', 'oauth2_proxy_enabled': True,
+              'kpis_allowed_emails': ['reader@example.test', 'second+admin@example.test'],
               'kpis_admin_password': secrets.token_urlsafe(24), 'kpis_website_id': str(uuid.uuid4()),
               'project_name': 'reader-startup', 'base_domain': 'example.test',
               'kpis_host': f'localhost:{kpis_port}', 'k8s_namespace': 'sample',
@@ -199,7 +200,7 @@ def reader_edge(umami, tmp_path):
                f'--redirect-url={app_origin}/oauth2/callback', '--whitelist-domain=localhost:*',
                '--upstream=http://umami:3000', '--skip-jwt-bearer-tokens=true',
                '--extra-jwt-issuers=http://oidc:8080/default=startup-api',
-               '--pass-authorization-header=true', '--skip-auth-route=!=^/private_api',
+               '--pass-authorization-header=true', '--skip-auth-route=!=^/(private_api|api/heartbeat)',
                '--skip-auth-route=OPTIONS=^/private_api')
         created.append(proxy)
         for _ in range(60):
@@ -224,7 +225,8 @@ def reader_edge(umami, tmp_path):
                 spec['errors']['service'] = 'oauth2-proxy'
             middlewares[item['metadata']['name']] = spec
         assert middlewares['kpis-auth']['forwardAuth']['address'] == (
-            'http://oauth2-proxy.sample.svc.cluster.local:4180/oauth2/auth')
+            'http://oauth2-proxy.sample.svc.cluster.local:4180/oauth2/auth'
+            '?allowed_emails=reader%40example.test%2Csecond%2Badmin%40example.test')
         routers = {'reader': {'rule': 'PathPrefix(`/`)', 'entryPoints': ['kpis'],
                               'service': 'kpis', 'middlewares': ['kpis-reader'], 'tls': {}},
                    'existing-app': {'rule': 'PathPrefix(`/`)', 'entryPoints': ['app'],
@@ -355,4 +357,49 @@ def test_oauth_reader_reuses_session_blocks_bypasses_and_keeps_tracking_public(r
         page.locator('input[name="password"]').fill(values['kpis_admin_password'])
         page.locator('button[type="submit"], input[type="submit"]').click()
         page.wait_for_url(lambda url: '/login' not in url)
+        browser.close()
+
+
+@pytest.mark.parametrize('reader_edge', ['outsider@example.test', 'second+admin@example.test'], indirect=True)
+def test_oauth_reader_requires_an_allowed_session_email(reader_edge):
+    from playwright.sync_api import sync_playwright, expect
+    values, origin = reader_edge['values'], reader_edge['origin']
+    # GIVEN a real existing-app login that accepts both an allowed and an
+    # unlisted user, independently of the KPI-specific email list.
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        context = browser.new_context(ignore_https_errors=True)
+        page = context.new_page()
+        page.goto(reader_edge['app_origin'] + '/oauth2/start?rd=' + urllib.parse.quote(
+            reader_edge['app_origin'] + '/private_api', safe=''))
+        page.locator('input[name="username"]').fill('test-user')
+        page.locator('button[type="submit"], input[type="submit"]').click()
+        page.wait_for_url(reader_edge['app_origin'] + '/private_api')
+        assert context.request.get(reader_edge['app_origin'] + '/api/heartbeat').status == 200
+        # WHEN accessing KPIs, THEN only an exact listed session email is allowed.
+        page.goto(origin + '/')
+        if reader_edge['session_email'] == 'second+admin@example.test':
+            page.wait_for_url(origin + '/share/' + values['kpis_website_id'])
+            expect(page.get_by_text('Visitors', exact=True).first).to_be_visible()
+            assert context.request.get(origin + '/api/share/' + values['kpis_website_id']).status == 200
+        else:
+            expect(page.get_by_text('Forbidden', exact=True)).to_be_visible()
+            # User-controlled query parameters and identity headers cannot
+            # replace the allowlist sent by the actual ForwardAuth manifest.
+            for path in ('/', '/share/' + values['kpis_website_id'],
+                         '/api/share/' + values['kpis_website_id'],
+                         '/api/websites/' + values['kpis_website_id']):
+                response = context.request.get(origin + path + '?allowed_emails=outsider%40example.test',
+                    headers={'X-Auth-Request-Email': 'reader@example.test',
+                             'X-Forwarded-Email': 'reader@example.test',
+                             'X-Forwarded-Uri': '/public', 'X-Forwarded-Method': 'OPTIONS',
+                             'Authorization': 'Bearer ' + values['kpis_login']['json']['token']})
+                assert response.status == 403
+                assert '"token"' not in response.text()
+            assert context.request.get(reader_edge['app_origin'] + '/api/heartbeat').status == 200
+        assert context.request.get(origin + '/script.js').status == 200
+        assert context.request.post(origin + '/api/send', data={
+            'type': 'event', 'payload': {'website': values['kpis_website_id'], 'hostname': 'example.test',
+                                      'screen': '1440x900', 'language': 'en-US', 'url': '/allowlist-test',
+                                      'title': 'Allowlist test'}}).status == 200
         browser.close()

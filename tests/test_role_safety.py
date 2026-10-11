@@ -176,6 +176,9 @@ def test_kpis_project_overrides_reach_manifests_and_public_api():
     {'kpis_website_id': 'not-a-uuid'}, {'kpis_website_id': ''},
     {'kpis_access_mode': 'automatic'},
     {'kpis_access_mode': 'oauth2_proxy'},
+    *[{'kpis_access_mode': 'oauth2_proxy', 'oauth2_proxy_enabled': True, 'kpis_allowed_emails': emails}
+      for emails in ([], 'admin@example.test', {'admin': 'admin@example.test'},
+                     ['*'], ['*@example.test'], ['admin@example.test,outsider@example.test'], [''])],
     {'kpis_admin_password': 'x' * 15}, {'kpis_db_password': ''}, {'kpis_app_secret': ''},
 ])
 def test_kpis_safety_assert_rejects_unsafe_configuration(overrides):
@@ -518,3 +521,21 @@ def test_deploy_action_uses_pipeable_cli_credentials_and_complete_exports(tmp_pa
     join = (ROOT / '.github/actions/join-tailnet/read-credentials.sh').read_text()
     assert ' -p ' not in join
     subprocess.run(['bash', '-n'], input=join, text=True, check=True)
+
+
+def test_kpis_allowlist_uses_exact_encoded_session_emails():
+    import urllib.parse
+    # GIVEN an explicit list including a plus-address and the real Ansible guard,
+    variables = kpis_variables(kpis_access_mode='oauth2_proxy', oauth2_proxy_enabled=True,
+                               kpis_allowed_emails=['owner@example.test', 'analyst+metrics@example.test'])
+    assert kpis_guard_allows(variables)
+    # WHEN rendering the shipped ForwardAuth manifest, THEN it sends a fixed
+    # exact-email constraint to the existing service without adding a proxy pod.
+    manifest = yaml.safe_load(render('roles/kpis/templates/oauth-middlewares.yml', variables))
+    auth = next(item['spec']['forwardAuth'] for item in manifest['items']
+                if item['metadata']['name'] == 'kpis-auth')
+    address = urllib.parse.urlsplit(auth['address'])
+    assert address.netloc == 'oauth2-proxy.sample.svc.cluster.local:80'
+    assert urllib.parse.parse_qs(address.query) == {
+        'allowed_emails': ['owner@example.test,analyst+metrics@example.test']}
+    assert auth['authRequestHeaders'] == ['Cookie']

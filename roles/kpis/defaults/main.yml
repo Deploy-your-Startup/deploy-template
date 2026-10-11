@@ -12,6 +12,8 @@ kpis_admin_password: ""
 
 # Explicit opt-in: projects without an OAuth2 Proxy keep Umami's own login.
 kpis_access_mode: password
+# Exact session emails permitted to read metrics; required in OAuth mode.
+kpis_allowed_emails: []
 kpis_share_id: "{{ kpis_website_id }}"
 kpis_oauth2_proxy_service: oauth2-proxy
 kpis_oauth2_proxy_port: 80
