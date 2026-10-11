@@ -1,0 +1,148 @@
+- name: Validate kpis configuration before applying anything
+  ansible.builtin.assert:
+    that:
+      - kpis_website_id | default('') is match('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+      - kpis_admin_password | default('') | length >= 16
+      - kpis_db_password | default('') | length > 0
+      - kpis_app_secret | default('') | length > 0
+    quiet: true
+  no_log: true
+  tags: kpis
+
+- name: Apply kpis secret
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'secret.yml') }}"
+  no_log: true
+  diff: false
+  tags: kpis
+
+- name: Apply kpis service
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'service.yml') }}"
+  tags: kpis
+
+- name: Restrict public ingress to heartbeat during bootstrap
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'ingress.yml') }}"
+  vars:
+    kpis_bootstrap_only: true
+  tags: kpis
+
+- name: Apply kpis deployment
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'deployment.yml') }}"
+  tags: kpis
+
+- name: Wait for kpis heartbeat over HTTPS
+  ansible.builtin.uri:
+    url: "https://{{ kpis_host }}/api/heartbeat"
+    status_code: 200
+  register: kpis_heartbeat
+  until: kpis_heartbeat.status | default(0) == 200
+  retries: 60
+  delay: 5
+  tags: kpis
+
+- name: Find the private kpis service for password bootstrap
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: kpis
+    namespace: "{{ k8s_namespace | default('default') }}"
+  register: kpis_service
+  tags: kpis
+
+- name: Try the initial admin login privately
+  ansible.builtin.uri:
+    url: "http://{{ kpis_service.resources[0].spec.clusterIP }}/api/auth/login"
+    method: POST
+    body_format: json
+    body:
+      username: admin
+      password: umami
+    status_code: [200, 401]
+    use_proxy: false
+  register: kpis_initial_login
+  no_log: true
+  tags: kpis
+
+- name: Replace the default admin password before publishing the UI
+  ansible.builtin.uri:
+    url: "http://{{ kpis_service.resources[0].spec.clusterIP }}/api/me/password"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ kpis_initial_login.json.token }}"
+    body_format: json
+    body:
+      currentPassword: umami
+      newPassword: "{{ kpis_admin_password }}"
+    status_code: 200
+    use_proxy: false
+  when: kpis_initial_login.status == 200
+  no_log: true
+  tags: kpis
+
+- name: Verify the configured admin password privately
+  ansible.builtin.uri:
+    url: "http://{{ kpis_service.resources[0].spec.clusterIP }}/api/auth/login"
+    method: POST
+    body_format: json
+    body:
+      username: admin
+      password: "{{ kpis_admin_password }}"
+    status_code: 200
+    use_proxy: false
+  no_log: true
+  tags: kpis
+
+- name: Publish kpis ingress after the default login is disabled
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'ingress.yml') }}"
+  tags: kpis
+
+- name: Log in with the configured admin password
+  ansible.builtin.uri:
+    url: "https://{{ kpis_host }}/api/auth/login"
+    method: POST
+    body_format: json
+    body:
+      username: admin
+      password: "{{ kpis_admin_password }}"
+    status_code: 200
+  register: kpis_login
+  until: kpis_login.status | default(0) == 200
+  retries: 12
+  delay: 5
+  no_log: true
+  tags: kpis
+
+- name: Check for the configured website
+  ansible.builtin.uri:
+    url: "https://{{ kpis_host }}/api/websites/{{ kpis_website_id }}"
+    headers:
+      Authorization: "Bearer {{ kpis_login.json.token }}"
+    status_code: [200, 404]
+  register: kpis_website
+  no_log: true
+  tags: kpis
+
+- name: Create the configured website if missing
+  ansible.builtin.uri:
+    url: "https://{{ kpis_host }}/api/websites"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ kpis_login.json.token }}"
+    body_format: json
+    body:
+      id: "{{ kpis_website_id }}"
+      name: "{{ project_name }}"
+      domain: "{{ base_domain }}"
+    status_code: [200, 201]
+  when: kpis_website.status == 404
+  no_log: true
+  tags: kpis

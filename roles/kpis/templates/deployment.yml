@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kpis
+  namespace: "{{ k8s_namespace | default('default') }}"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kpis
+  template:
+    metadata:
+      labels:
+        app: kpis
+        triggerUpdateLabel: "{{ ansible_date_time.iso8601_basic }}"
+    spec:
+      initContainers:
+        - name: init-create-database-and-user
+          image: postgres:{{ postgres_version }}
+          env:
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: admin_username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: admin_password
+            - name: PGHOST
+              value: "{{ postgres_host }}"
+            - name: PGPORT
+              value: "{{ postgres_port }}"
+            - name: PGDATABASE
+              value: postgres
+            - name: KPIS_DB_NAME
+              value: "{{ kpis_db_name }}"
+            - name: KPIS_DB_USER
+              value: "{{ kpis_db_user }}"
+            - name: KPIS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kpis
+                  key: KPIS_DB_PASSWORD
+          command:
+            - sh
+            - -ec
+            - |
+              psql --set=ON_ERROR_STOP=1 <<'SQL'
+              \getenv db_name KPIS_DB_NAME
+              \getenv db_user KPIS_DB_USER
+              \getenv db_password KPIS_DB_PASSWORD
+              SELECT format('CREATE DATABASE %I', :'db_name') WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'db_name')\gexec
+              SELECT format('CREATE USER %I', :'db_user') WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'db_user')\gexec
+              SELECT format('ALTER USER %I WITH PASSWORD %L', :'db_user', :'db_password')\gexec
+              SELECT format('ALTER DATABASE %I OWNER TO %I', :'db_name', :'db_user')\gexec
+              SQL
+              PGDATABASE="$KPIS_DB_NAME" psql --set=ON_ERROR_STOP=1 <<'SQL'
+              \getenv db_user KPIS_DB_USER
+              SELECT format('GRANT ALL ON SCHEMA public TO %I', :'db_user')\gexec
+              SQL
+      containers:
+        - name: kpis
+          image: ghcr.io/umami-software/umami:{{ kpis_version }}
+          envFrom:
+            - secretRef:
+                name: kpis
+          env:
+            - name: DISABLE_TELEMETRY
+              value: "1"
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "10m"
+            limits:
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /api/heartbeat
+              port: 3000
+            initialDelaySeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/heartbeat
+              port: 3000
+            initialDelaySeconds: 10
