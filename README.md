@@ -314,6 +314,7 @@ Projects load shared roles from their synced deployment checkout:
 | `postgres` | Local database; configure database credentials and storage placement in project group_vars. |
 | `cert-manager` | TLS certificates; configure the ACME solver and operator contact. |
 | [`oauth2-proxy`](roles/oauth2-proxy/README.md) | OIDC reverse proxy; set `base_domain`, `auth_domain`, `auth_audience`, and Vault values `oauth2_proxy_client_id`, `oauth2_proxy_client_secret`, `oauth2_proxy_cookie_secret`. Guard the project's role import/include with `oauth2_proxy_enabled \| default(false)`. |
+| [`kpis`](roles/kpis/README.md) | Self-hosted, cookieless KPI tracking (Umami); set `base_domain`, `project_name`, `kpis_website_id`, and Vault values `kpis_db_password`, `kpis_app_secret`, `kpis_admin_password`. Guard the project's role import/include with `kpis_enabled \| default(false)`. |
 
 oauth2-proxy defaults to an API subdomain and a namespace-local backend.
 Configure `oauth2_proxy_host` and `oauth2_proxy_upstream` for another topology.
