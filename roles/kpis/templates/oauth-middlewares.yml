@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: List
+items:
+  - apiVersion: traefik.io/v1alpha1
+    kind: Middleware
+    metadata:
+      name: kpis-auth-path
+      namespace: "{{ k8s_namespace | default('default') }}"
+    spec:
+      headers:
+        customRequestHeaders:
+          # The existing reverse proxy skips public backend routes. Authenticate
+          # a fixed protected path, never an attacker-controlled forwarded URI.
+          X-Forwarded-Uri: "{{ kpis_oauth2_proxy_auth_path }}"
+          X-Forwarded-Method: GET
+          X-Forwarded-Host: "{{ kpis_host }}"
+          X-Forwarded-Proto: https
+          X-Forwarded-For: ""
+  - apiVersion: traefik.io/v1alpha1
+    kind: Middleware
+    metadata:
+      name: kpis-auth
+      namespace: "{{ k8s_namespace | default('default') }}"
+    spec:
+      forwardAuth:
+        address: "http://{{ kpis_oauth2_proxy_service }}:{{ kpis_oauth2_proxy_port }}/oauth2/auth"
+        trustForwardHeader: true
+        authRequestHeaders:
+          - Cookie
+  - apiVersion: traefik.io/v1alpha1
+    kind: Middleware
+    metadata:
+      name: kpis-auth-cleanup
+      namespace: "{{ k8s_namespace | default('default') }}"
+    spec:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Uri: ""
+  - apiVersion: traefik.io/v1alpha1
+    kind: Middleware
+    metadata:
+      name: kpis-sign-in
+      namespace: "{{ k8s_namespace | default('default') }}"
+    spec:
+      errors:
+        status:
+          - "401"
+        service:
+          name: {{ kpis_oauth2_proxy_service }}
+          port: {{ kpis_oauth2_proxy_port }}
+        query: "/oauth2/sign_in?rd=https%3A%2F%2F{{ kpis_host | urlencode }}%2F"
+  - apiVersion: traefik.io/v1alpha1
+    kind: Middleware
+    metadata:
+      name: kpis-reader-home
+      namespace: "{{ k8s_namespace | default('default') }}"
+    spec:
+      redirectRegex:
+        regex: "^https?://[^/]+/?$"
+        replacement: "https://{{ kpis_host }}/share/{{ kpis_share_id }}"
+        permanent: false
+  - apiVersion: traefik.io/v1alpha1
+    kind: Middleware
+    metadata:
+      name: kpis-reader
+      namespace: "{{ k8s_namespace | default('default') }}"
+    spec:
+      chain:
+        middlewares:
+          - name: kpis-sign-in
+          - name: kpis-auth-path
+          - name: kpis-auth
+          - name: kpis-auth-cleanup
+          - name: kpis-reader-home

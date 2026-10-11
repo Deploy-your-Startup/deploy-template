@@ -1,6 +1,10 @@
 - name: Validate kpis configuration before applying anything
   ansible.builtin.assert:
     that:
+      - kpis_access_mode in ['password', 'oauth2_proxy']
+      - kpis_access_mode != 'oauth2_proxy' or oauth2_proxy_enabled | default(false) | bool
+      - kpis_share_id is match('^[a-zA-Z0-9_-]{1,100}$')
+      - kpis_oauth2_proxy_auth_path is match('^/[a-zA-Z0-9/_-]+$')
       - kpis_website_id | default('') is match('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
       - kpis_admin_password | default('') | length >= 16
       - kpis_db_password | default('') | length > 0
@@ -27,6 +31,14 @@
   kubernetes.core.k8s:
     state: present
     definition: "{{ lookup('template', 'ingress.yml') }}"
+  vars:
+    kpis_bootstrap_only: true
+  tags: kpis
+
+- name: Restrict collector ingress during bootstrap
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'public-ingress.yml') }}"
   vars:
     kpis_bootstrap_only: true
   tags: kpis
@@ -152,6 +164,93 @@
   register: kpis_verified_website
   failed_when: kpis_verified_website.json | default({}, true) | dict2items | selectattr('key', 'equalto', 'id') | map(attribute='value') | list != [kpis_website_id]
   no_log: true
+  tags: kpis
+
+- name: Find the existing OAuth2 Proxy service
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: "{{ kpis_oauth2_proxy_service }}"
+    namespace: "{{ k8s_namespace | default('default') }}"
+  register: kpis_proxy_service
+  when: kpis_access_mode == 'oauth2_proxy'
+  tags: kpis
+
+- name: Verify the existing proxy rejects anonymous reader requests
+  ansible.builtin.uri:
+    url: "http://{{ kpis_proxy_service.resources[0].spec.clusterIP }}:{{ kpis_oauth2_proxy_port }}/oauth2/auth"
+    headers:
+      X-Forwarded-Uri: "{{ kpis_oauth2_proxy_auth_path }}"
+      X-Forwarded-Method: GET
+      X-Forwarded-Host: "{{ kpis_host }}"
+      X-Forwarded-Proto: https
+    status_code: 401
+    use_proxy: false
+  when: kpis_access_mode == 'oauth2_proxy'
+  no_log: true
+  tags: kpis
+
+- name: Find the managed reader share privately
+  ansible.builtin.uri:
+    url: "http://{{ kpis_service.resources[0].spec.clusterIP }}/api/share/{{ kpis_share_id }}"
+    status_code: [200, 404]
+    use_proxy: false
+  register: kpis_reader_share
+  failed_when: kpis_reader_share.status == 200 and kpis_reader_share.json.websiteId | default('') != kpis_website_id
+  no_log: true
+  tags: kpis
+
+- name: Create the reader share for OAuth access
+  ansible.builtin.uri:
+    url: "http://{{ kpis_service.resources[0].spec.clusterIP }}/api/websites/{{ kpis_website_id }}"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ kpis_login.json.token }}"
+    body_format: json
+    body:
+      name: "{{ project_name }}"
+      domain: "{{ base_domain }}"
+      shareId: "{{ kpis_share_id }}"
+    status_code: 200
+    use_proxy: false
+  when: kpis_access_mode == 'oauth2_proxy' and kpis_reader_share.status == 404
+  no_log: true
+  tags: kpis
+
+- name: Remove only the managed reader share in password mode
+  ansible.builtin.uri:
+    url: "http://{{ kpis_service.resources[0].spec.clusterIP }}/api/share/id/{{ kpis_reader_share.json.shareId }}"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ kpis_login.json.token }}"
+    status_code: 200
+    use_proxy: false
+  when: kpis_access_mode == 'password' and kpis_reader_share.status == 200
+  no_log: true
+  tags: kpis
+
+- name: Verify the reader share before exposing OAuth access
+  ansible.builtin.uri:
+    url: "http://{{ kpis_service.resources[0].spec.clusterIP }}/api/share/{{ kpis_share_id }}"
+    status_code: 200
+    use_proxy: false
+  register: kpis_verified_share
+  failed_when: kpis_verified_share.json.websiteId | default('') != kpis_website_id
+  when: kpis_access_mode == 'oauth2_proxy'
+  no_log: true
+  tags: kpis
+
+- name: Apply OAuth reader middlewares
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'oauth-middlewares.yml') }}"
+  when: kpis_access_mode == 'oauth2_proxy'
+  tags: kpis
+
+- name: Publish collector ingress after bootstrap
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'public-ingress.yml') }}"
   tags: kpis
 
 - name: Publish kpis ingress after the default login is disabled
