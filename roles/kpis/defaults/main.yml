@@ -9,3 +9,11 @@ kpis_website_id: ""
 kpis_db_password: ""
 kpis_app_secret: ""
 kpis_admin_password: ""
+
+# Explicit opt-in: projects without an OAuth2 Proxy keep Umami's own login.
+kpis_access_mode: password
+kpis_share_id: "{{ kpis_website_id }}"
+kpis_oauth2_proxy_service: oauth2-proxy
+kpis_oauth2_proxy_port: 80
+# This must be a path requiring authentication in the existing proxy.
+kpis_oauth2_proxy_auth_path: /private_api
