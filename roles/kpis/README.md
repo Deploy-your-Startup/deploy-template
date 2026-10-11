@@ -15,9 +15,9 @@ Projects guard the role in their own playbook; the role does not define a toggle
   tags: kpis
 ```
 
-The same guard works with `include_role`. New projects from the application
-template will default `kpis_enabled` to `true`. Disabling the toggle skips the
-role; it does not remove existing resources or data.
+The same guard works with `include_role`. Keep tracking opt-in with
+`kpis_enabled: false` until its credentials and deployment have been reviewed.
+Disabling the toggle skips the role; it does not remove existing resources or data.
 
 ## Configuration
 
@@ -55,8 +55,10 @@ Provide DNS for the host, the namespace's `letsencrypt-prod` issuer and
 Before applying anything, the role validates the website UUID and secrets.
 The public ingress exposes only `/api/heartbeat` during bootstrap. Through the
 cluster-internal Service, the role replaces the default `admin/umami` password
-and verifies the configured login. Only then does it publish the full HTTPS
-ingress and create the website with `kpis_website_id` via the API if missing.
+and verifies the configured login. It verifies that the default password is rejected, creates the website with
+`kpis_website_id` through the private API if missing, and reads it back. Only
+then does it publish the full HTTPS ingress. Umami returns `200` with JSON
+`null` for a missing website; bootstrap handles that response as well as `404`.
 The Ansible host must be able to reach the Service's ClusterIP. Failed password
 bootstrap leaves the UI closed. Password and token tasks use `no_log`; Secret
 application also disables diff. Pod credentials come from the Secret, never args.

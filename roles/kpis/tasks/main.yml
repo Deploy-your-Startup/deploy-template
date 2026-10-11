@@ -37,16 +37,6 @@
     definition: "{{ lookup('template', 'deployment.yml') }}"
   tags: kpis
 
-- name: Wait for kpis heartbeat over HTTPS
-  ansible.builtin.uri:
-    url: "https://{{ kpis_host }}/api/heartbeat"
-    status_code: 200
-  register: kpis_heartbeat
-  until: kpis_heartbeat.status | default(0) == 200
-  retries: 60
-  delay: 5
-  tags: kpis
-
 - name: Find the private kpis service for password bootstrap
   kubernetes.core.k8s_info:
     api_version: v1
@@ -54,6 +44,17 @@
     name: kpis
     namespace: "{{ k8s_namespace | default('default') }}"
   register: kpis_service
+  tags: kpis
+
+- name: Wait for kpis heartbeat privately
+  ansible.builtin.uri:
+    url: "http://{{ kpis_service.resources[0].spec.clusterIP }}/api/heartbeat"
+    status_code: 200
+    use_proxy: false
+  register: kpis_heartbeat
+  until: kpis_heartbeat.status | default(0) == 200
+  retries: 60
+  delay: 5
   tags: kpis
 
 - name: Try the initial admin login privately
@@ -96,44 +97,37 @@
       password: "{{ kpis_admin_password }}"
     status_code: 200
     use_proxy: false
+  register: kpis_login
   no_log: true
   tags: kpis
 
-- name: Publish kpis ingress after the default login is disabled
-  kubernetes.core.k8s:
-    state: present
-    definition: "{{ lookup('template', 'ingress.yml') }}"
-  tags: kpis
-
-- name: Log in with the configured admin password
+- name: Verify the default admin password is rejected privately
   ansible.builtin.uri:
-    url: "https://{{ kpis_host }}/api/auth/login"
+    url: "http://{{ kpis_service.resources[0].spec.clusterIP }}/api/auth/login"
     method: POST
     body_format: json
     body:
       username: admin
-      password: "{{ kpis_admin_password }}"
-    status_code: 200
-  register: kpis_login
-  until: kpis_login.status | default(0) == 200
-  retries: 12
-  delay: 5
+      password: umami
+    status_code: 401
+    use_proxy: false
   no_log: true
   tags: kpis
 
 - name: Check for the configured website
   ansible.builtin.uri:
-    url: "https://{{ kpis_host }}/api/websites/{{ kpis_website_id }}"
+    url: "http://{{ kpis_service.resources[0].spec.clusterIP }}/api/websites/{{ kpis_website_id }}"
     headers:
       Authorization: "Bearer {{ kpis_login.json.token }}"
     status_code: [200, 404]
+    use_proxy: false
   register: kpis_website
   no_log: true
   tags: kpis
 
 - name: Create the configured website if missing
   ansible.builtin.uri:
-    url: "https://{{ kpis_host }}/api/websites"
+    url: "http://{{ kpis_service.resources[0].spec.clusterIP }}/api/websites"
     method: POST
     headers:
       Authorization: "Bearer {{ kpis_login.json.token }}"
@@ -143,6 +137,25 @@
       name: "{{ project_name }}"
       domain: "{{ base_domain }}"
     status_code: [200, 201]
-  when: kpis_website.status == 404
+    use_proxy: false
+  when: kpis_website.status == 404 or kpis_website.json | default(none) is none
   no_log: true
+  tags: kpis
+
+- name: Verify the configured website exists before publishing
+  ansible.builtin.uri:
+    url: "http://{{ kpis_service.resources[0].spec.clusterIP }}/api/websites/{{ kpis_website_id }}"
+    headers:
+      Authorization: "Bearer {{ kpis_login.json.token }}"
+    status_code: 200
+    use_proxy: false
+  register: kpis_verified_website
+  failed_when: kpis_verified_website.json | default({}, true) | dict2items | selectattr('key', 'equalto', 'id') | map(attribute='value') | list != [kpis_website_id]
+  no_log: true
+  tags: kpis
+
+- name: Publish kpis ingress after the default login is disabled
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'ingress.yml') }}"
   tags: kpis
