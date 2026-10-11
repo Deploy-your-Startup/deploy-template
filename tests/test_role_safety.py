@@ -164,10 +164,10 @@ def test_kpis_project_overrides_reach_manifests_and_public_api():
     assert secret['stringData']['DATABASE_URL'].endswith('/sample_metrics')
     assert ingress['spec']['rules'][0]['host'] == 'metrics.example.com'
     assert ingress['spec']['tls'][0]['hosts'] == ['metrics.example.com']
-    assert len(public_urls) == 4
+    assert public_urls == []
     assert all(templar(variables).template(trust_as_template(url)).startswith('https://metrics.example.com/')
                for url in public_urls)
-    website = tasks[-1]['ansible.builtin.uri']['body']
+    website = next(task['ansible.builtin.uri']['body'] for task in tasks if task['name'] == 'Create the configured website if missing')
     assert templar(variables).template(trust_as_template(website['name'])) == 'sample-startup'
     assert templar(variables).template(trust_as_template(website['id'])) == variables['kpis_website_id']
 
@@ -222,8 +222,8 @@ def test_kpis_bootstrap_replaces_default_password_before_public_ingress():
         if uri.get('body') or uri.get('headers') or 'ansible.builtin.assert' in task or task['name'] == 'Apply kpis secret':
             assert task['no_log'] is True
     assert tasks[1]['diff'] is False
-    assert publish < names.index('Check for the configured website') < len(tasks) - 1
-    assert tasks[-1]['when'] == 'kpis_website.status == 404'
+    assert names.index('Check for the configured website') < names.index('Verify the configured website exists before publishing') < publish
+    assert names.index('Verify the default admin password is rejected privately') < publish
 
 
 def oauth2_proxy_variables(**overrides):
