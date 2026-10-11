@@ -1,4 +1,5 @@
 """Exercise role guards with Ansible's expression engine and rendered manifests."""
+import base64
 import os
 from pathlib import Path
 
@@ -65,6 +66,95 @@ def test_every_role_has_valid_ansible_task_syntax():
     playbook = Playbook.load(str(ROOT / "tests/roles.yml"), loader=loader, variable_manager=VariableManager(loader=loader))
     assert len(playbook.get_plays()) == 1
     assert {role.get_name() for role in playbook.get_plays()[0].get_roles()} == {path.name for path in (ROOT / "roles").iterdir()}
+
+
+def oauth2_proxy_variables(**overrides):
+    return {
+        **{key: trust_as_template(value) if isinstance(value, str) else value
+           for key, value in load('roles/oauth2-proxy/defaults/main.yml').items()},
+        'base_domain': 'example.com', 'auth_domain': 'https://login.example.com',
+        'auth_audience': 'https://example.com/private_api', 'k8s_namespace': 'sample',
+        'ansible_date_time': {'iso8601_basic': '20261011T120000'},
+        'oauth2_proxy_client_id': 'test-client-id',
+        'oauth2_proxy_client_secret': 'test-client-secret',
+        'oauth2_proxy_cookie_secret': base64.urlsafe_b64encode(bytes(range(32))).decode().rstrip('='),
+        **overrides,
+    }
+
+
+def oauth2_proxy_guard_allows(variables):
+    guard = load('roles/oauth2-proxy/tasks/main.yml')[0]['ansible.builtin.assert']
+    return all(templar(variables).evaluate_expression(trust_as_template(expression))
+               for expression in guard['that'])
+
+
+def test_oauth2_proxy_render_preserves_browser_and_bearer_authentication():
+    # GIVEN shared-role defaults and a project's OIDC configuration,
+    variables = oauth2_proxy_variables()
+    assert oauth2_proxy_guard_allows(variables)
+    # WHEN Ansible renders the actual Deployment, Service and Secret,
+    deployment_text = render('roles/oauth2-proxy/templates/deployment.yml', variables)
+    deployment = yaml.safe_load(deployment_text)
+    service = yaml.safe_load(render('roles/oauth2-proxy/templates/service.yml', variables))
+    secret = yaml.safe_load(render('roles/oauth2-proxy/templates/secret.yml', variables))
+    container = deployment['spec']['template']['spec']['containers'][0]
+    # THEN protected writes, anonymous preflight and both caller paths survive.
+    assert '--skip-auth-route=!=^/private_api' in container['args']
+    assert '--skip-auth-route=OPTIONS=^/private_api' in container['args']
+    assert '--skip-jwt-bearer-tokens=true' in container['args']
+    assert '--pass-authorization-header=true' in container['args']
+    assert '--extra-jwt-issuers=https://login.example.com/=https://example.com/private_api' in container['args']
+    assert '--oidc-issuer-url=https://login.example.com/' in container['args']
+    assert '--redirect-url=https://backend.example.com/oauth2/callback' in container['args']
+    assert '--upstream=http://backend.sample.svc.cluster.local:8000' in container['args']
+    assert '--cookie-domain=.example.com' in container['args']
+    assert container['image'].endswith(':' + variables['oauth2_proxy_version'])
+    # THEN credentials reach the pod only through the namespaced Secret.
+    assert container['envFrom'] == [{'secretRef': {'name': secret['metadata']['name']}}]
+    assert 'env' not in container
+    assert set(secret['data']) == {'OAUTH2_PROXY_CLIENT_ID', 'OAUTH2_PROXY_CLIENT_SECRET', 'OAUTH2_PROXY_COOKIE_SECRET'}
+    for key in ('client_id', 'client_secret', 'cookie_secret'):
+        value = variables['oauth2_proxy_' + key]
+        assert value not in deployment_text
+        assert not any(arg.startswith('--' + key.replace('_', '-') + '=') for arg in container['args'])
+        assert base64.b64decode(secret['data']['OAUTH2_PROXY_' + key.upper()]).decode() == value
+    for manifest in (deployment, service, secret):
+        assert manifest['metadata']['namespace'] == 'sample'
+    assert service['spec']['selector'] == deployment['spec']['selector']['matchLabels']
+
+
+@pytest.mark.parametrize('overrides', [
+    {'oauth2_proxy_skip_auth_route': '=^/private_api'},
+    {'oauth2_proxy_cookie_secret': 'too-short'},
+    {'oauth2_proxy_cookie_secret': 'x' * 33},
+    {'oauth2_proxy_cookie_secret': 'é' * 16 + 'x'},
+    {'oauth2_proxy_cookie_secret': base64.urlsafe_b64encode(bytes(range(20))).decode().rstrip('=')},
+    {'oauth2_proxy_cookie_secret': base64.b64encode(b'\xff' * 32).decode()},
+    {'oauth2_proxy_client_id': ''},
+    {'oauth2_proxy_client_secret': ''},
+    {'oauth2_proxy_extra_jwt_issuers': 'https://login.example.com/'},
+])
+def test_oauth2_proxy_safety_assert_rejects_unsafe_configuration(overrides):
+    # GIVEN a missing negation, invalid cookie, missing client credential or audience,
+    variables = oauth2_proxy_variables(**overrides)
+    # WHEN Ansible evaluates the actual first task's safety assertions,
+    # THEN it rejects the configuration before any Kubernetes resource is applied.
+    assert not oauth2_proxy_guard_allows(variables)
+    tasks = load('roles/oauth2-proxy/tasks/main.yml')
+    assert 'ansible.builtin.assert' in tasks[0]
+    assert tasks[1]['no_log'] is True
+    assert tasks[1]['diff'] is False
+
+
+@pytest.mark.parametrize('length', [16, 24, 32])
+@pytest.mark.parametrize('encoding', ['raw', 'padded', 'unpadded'])
+def test_oauth2_proxy_safety_assert_accepts_valid_cookie_bytes(length, encoding):
+    # GIVEN an AES-length raw secret or binary secret in the URL-safe alphabet,
+    secret = 'x' * length if encoding == 'raw' else base64.urlsafe_b64encode(b'\xff' * length).decode()
+    if encoding == 'unpadded':
+        secret = secret.rstrip('=')
+    # WHEN Ansible evaluates the role guard, THEN both padding forms are accepted.
+    assert oauth2_proxy_guard_allows(oauth2_proxy_variables(oauth2_proxy_cookie_secret=secret))
 
 
 @pytest.mark.parametrize("observed,expected", [

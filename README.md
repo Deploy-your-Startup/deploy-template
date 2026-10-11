@@ -305,6 +305,21 @@ your-project/
     └── group_vars/      # Public settings and encrypted secrets
 ```
 
+## Shared infrastructure roles
+
+Projects load shared roles from their synced deployment checkout:
+
+| Role | Purpose and configuration |
+| --- | --- |
+| `postgres` | Local database; configure database credentials and storage placement in project group_vars. |
+| `cert-manager` | TLS certificates; configure the ACME solver and operator contact. |
+| [`oauth2-proxy`](roles/oauth2-proxy/README.md) | OIDC reverse proxy; set `base_domain`, `auth_domain`, `auth_audience`, and Vault values `oauth2_proxy_client_id`, `oauth2_proxy_client_secret`, `oauth2_proxy_cookie_secret`. Guard the project's role import/include with `oauth2_proxy_enabled \| default(false)`. |
+
+oauth2-proxy defaults to an API subdomain and a namespace-local backend.
+Configure `oauth2_proxy_host` and `oauth2_proxy_upstream` for another topology.
+`oauth_enabled` is the old application-template toggle; a later template phase
+will rename it. The shared role does not define a toggle default.
+
 ## Private Network Mode
 
 `network_mode: private` in a project's `group_vars` takes the cluster off the

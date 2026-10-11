@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy
+  namespace: "{{ k8s_namespace | default('default') }}"
+  labels:
+    app: oauth2-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oauth2-proxy
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: oauth2-proxy
+        triggerUpdateLabel: "{{ ansible_date_time.iso8601_basic }}"
+    spec:
+      containers:
+      - image: quay.io/oauth2-proxy/oauth2-proxy:{{ oauth2_proxy_version }}
+        name: oauth2-proxy
+        # Client id, client secret and cookie secret come from the Secret, not
+        # from args: args are readable in `kubectl get pod -o yaml` by anyone
+        # who can list pods.
+        envFrom:
+          - secretRef:
+              name: oauth2-proxy
+        args:
+          - --http-address=0.0.0.0:4180
+          - --provider=oidc
+          # Auth0 puts a trailing slash in `iss` and oauth2-proxy compares the
+          # issuer literally, so the slash is not cosmetic. Discovery is left
+          # on: the local test stack has to disable it only because its mock
+          # provider answers to two different hostnames.
+          - --oidc-issuer-url={{ auth_domain }}/
+          - --redirect-url=https://{{ oauth2_proxy_host }}/oauth2/callback
+          - --upstream={{ oauth2_proxy_upstream }}
+          - --email-domain=*
+          - --cookie-secure=true
+          - --cookie-domain={{ oauth2_proxy_cookie_domain }}
+          - --whitelist-domain={{ oauth2_proxy_whitelist_domain }}
+          # Behind Traefik, so X-Forwarded-* have to be trusted.
+          - --reverse-proxy=true
+          # The native app path: a bearer token signed for the API audience is
+          # verified against the JWKS and passed through, instead of being
+          # answered with a login redirect an app cannot follow.
+          - --skip-jwt-bearer-tokens=true
+          - --extra-jwt-issuers={{ oauth2_proxy_extra_jwt_issuers }}
+          # A cookie-authenticated browser sends no Authorization header, but
+          # the backend may require one. Without this, browser
+          # writes come back 401.
+          - --pass-authorization-header=true
+          # Quoted because the value starts with `!`, which YAML reads as a tag
+          # in an unquoted scalar. See the variable's comment in defaults.
+          - "--skip-auth-route={{ oauth2_proxy_skip_auth_route }}"
+{% for route in oauth2_proxy_extra_skip_auth_routes %}
+          - "--skip-auth-route={{ route }}"
+{% endfor %}
+{% for arg in oauth2_proxy_extra_args %}
+          - {{ arg | to_json }}
+{% endfor %}
+        imagePullPolicy: Always
+        ports:
+          - containerPort: 4180
+        livenessProbe:
+          httpGet:
+            path: /ping
+            port: 4180
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: 4180
+          initialDelaySeconds: 3
+          periodSeconds: 10
+        # Bound memory use while streaming requests to the upstream.
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "128Mi"
