@@ -10,6 +10,7 @@ import threading
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / ".github/actions/coverage-report/report.py"
@@ -121,7 +122,7 @@ def test_pull_request_gets_summary_table_and_one_comment(tmp_path, github):
     result, summary = report(tmp_path, api.url, "backend=backend/coverage/cobertura.xml")
     # THEN the job summary shows the line and branch rates with their counts
     assert "### Coverage: backend" in summary
-    assert "| backend | 68.2% (159/233) | 50.0% (22/44) |" in summary
+    assert "| backend | Not specified | 68.2% (159/233) | 50.0% (22/44) |" in summary
     assert "0123456" in summary
     # AND exactly one comment is created, authenticated and carrying the marker
     posts = [r for r in api.requests if r[0] == "POST"]
@@ -130,7 +131,7 @@ def test_pull_request_gets_summary_table_and_one_comment(tmp_path, github):
     assert path == "/repos/example/startup/issues/7/comments"
     assert authorization == "Bearer test-token"
     assert body["body"].startswith("<!-- deploy-your-startup-coverage: backend -->")
-    assert "| backend | 68.2% (159/233) | 50.0% (22/44) |" in body["body"]
+    assert "| backend | Not specified | 68.2% (159/233) | 50.0% (22/44) |" in body["body"]
     assert api.comments[0] == {"id": 1, "body": "Looks good"}
 
 
@@ -161,8 +162,71 @@ def test_several_services_share_one_table(tmp_path, github):
     _, summary = report(tmp_path, api.url, "backend=backend/coverage/cobertura.xml",
                         "frontend=frontend/coverage/cobertura.xml", title="Coverage", key="e2e")
     # THEN each service has a row; a service without branches shows a dash
-    assert "| backend | 68.2% (159/233) | 50.0% (22/44) |" in summary
-    assert "| frontend | 94.9% (93/98) | – |" in summary
+    assert "| backend | Not specified | 68.2% (159/233) | 50.0% (22/44) |" in summary
+    assert "| frontend | Not specified | 94.9% (93/98) | – |" in summary
+
+
+@pytest.mark.parametrize("level", ["Integration", "E2E", "Unit", "Component", "Integration + E2E"])
+def test_report_labels_measured_suites_in_summary_and_pr_comment(tmp_path, github, level):
+    # GIVEN real Cobertura data and the originating suites declared by the caller
+    api = github()
+    write_cobertura(tmp_path / "backend/coverage/cobertura.xml")
+    # WHEN the shipped report process renders this measurement
+    result, summary = report(tmp_path, api.url, "--measured-from", level,
+                             "backend=backend/coverage/cobertura.xml")
+    # THEN the same provenance and metrics appear in stdout, summary and PR comment
+    row = f"| backend | {level} | 68.2% (159/233) | 50.0% (22/44) |"
+    assert "| Service | Measured from | Lines | Branches |" in summary
+    assert row in summary
+    assert row in result.stdout
+    assert row in api.comments[0]["body"]
+
+
+def test_measurement_label_cannot_break_table_rows(tmp_path, github):
+    # GIVEN a caller label containing Markdown table delimiters and newlines
+    api = github()
+    path = write_cobertura(tmp_path / "cobertura.xml")
+    # WHEN the actual reporter receives the label as one argument
+    _, summary = report(tmp_path, api.url, "--measured-from", "Integration | E2E\ncombined",
+                        f"backend={path}")
+    # THEN the label remains inside one cell of one row
+    assert "| backend | Integration &#124; E2E combined | 68.2%" in summary
+
+
+@pytest.mark.parametrize("level", ["Integration + E2E", ""])
+def test_workflow_passes_measurement_label_through_real_action(tmp_path, github, level):
+    # GIVEN the shipped workflow and composite action with real coverage data
+    workflow = yaml.load((ROOT / ".github/workflows/build-and-deploy-service.yml").read_text(),
+                         Loader=yaml.BaseLoader)
+    action = yaml.safe_load((ROOT / ".github/actions/coverage-report/action.yml").read_text())
+    api = github()
+    path = write_cobertura(tmp_path / "cobertura.xml")
+    workflow_inputs = workflow["on"]["workflow_call"]["inputs"]
+    assert workflow_inputs["coverage_measured_from"]["default"] == ""
+    step = next(step for step in workflow["jobs"]["build"]["steps"] if step["name"] == "Report coverage")
+    resolved_label = step["with"]["measured_from"].replace("${{ inputs.coverage_measured_from }}", level)
+    action_step = action["runs"]["steps"][0]
+    action_inputs = {"measured_from": resolved_label, "title": "Coverage: backend", "comment_key": "backend",
+                     "required": "true", "files": f"backend={path}"}
+    action_env = {key: value for key, value in action_step["env"].items() if key != "GITHUB_TOKEN"}
+    for name, value in action_inputs.items():
+        action_env = {key: expression.replace(f"${{{{ inputs.{name} }}}}", value)
+                      for key, expression in action_env.items()}
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({"pull_request": {"number": 7}}))
+    summary = tmp_path / "summary.md"
+    # WHEN GitHub's resolved action shell is executed locally against the API stand-in
+    script = action_step["run"].replace("${{ github.action_path }}", str(REPORT.parent))
+    result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script], cwd=tmp_path,
+                            text=True, capture_output=True, timeout=30,
+                            env={**os.environ, **action_env, "GITHUB_STEP_SUMMARY": str(summary),
+                                 "GITHUB_EVENT_PATH": str(event), "GITHUB_TOKEN": "test-token",
+                                 "GITHUB_REPOSITORY": "example/startup", "GITHUB_API_URL": api.url})
+    # THEN the origin supplied by the workflow reaches both published views
+    assert result.returncode == 0, result.stdout + result.stderr
+    row = f"| backend | {level or 'Not specified'} | 68.2%"
+    assert row in summary.read_text()
+    assert row in api.comments[0]["body"]
 
 
 def test_service_without_coverage_file_is_skipped_silently(tmp_path, github):
@@ -259,7 +323,7 @@ def test_docker_test_brings_the_coverage_file_out_of_the_container(tmp_path):
         assert (coverage_dir / "cobertura.xml").read_text().startswith("<coverage")
         summary = subprocess.run([sys.executable, str(REPORT), f"service={coverage_dir}/cobertura.xml"],
                                  capture_output=True, text=True, env={**os.environ, "GITHUB_EVENT_PATH": ""})
-        assert "| service | 75.0% (3/4) | – |" in summary.stdout
+        assert "| service | Not specified | 75.0% (3/4) | – |" in summary.stdout
     finally:
         subprocess.run(["docker", "image", "rm", "-f", image], capture_output=True)
 

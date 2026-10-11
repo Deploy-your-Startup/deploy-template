@@ -15,6 +15,10 @@ inputs:
     description: "Heading of the summary and the comment"
     required: false
     default: "Coverage"
+  measured_from:
+    description: "Test suites that produced all supplied reports, e.g. Integration, E2E, Unit or Integration + E2E"
+    required: false
+    default: ""
   comment_key:
     description: "Identifies the sticky comment to update; defaults to the title"
     required: false
@@ -33,9 +37,10 @@ runs:
         COVERAGE_REQUIRED: ${{ inputs.required }}
         COVERAGE_FILES: ${{ inputs.files }}
         COVERAGE_TITLE: ${{ inputs.title }}
+        COVERAGE_MEASURED_FROM: ${{ inputs.measured_from }}
         COVERAGE_KEY: ${{ inputs.comment_key }}
       run: |
         mapfile -t files < <(printf '%s\n' "$COVERAGE_FILES" | sed '/^[[:space:]]*$/d')
         required_args=()
         if [ "$COVERAGE_REQUIRED" = true ]; then required_args+=(--required); fi
-        python3 "${{ github.action_path }}/report.py" --title "$COVERAGE_TITLE" ${COVERAGE_KEY:+--key "$COVERAGE_KEY"} "${required_args[@]}" "${files[@]}"
+        python3 "${{ github.action_path }}/report.py" --title "$COVERAGE_TITLE" --measured-from "$COVERAGE_MEASURED_FROM" ${COVERAGE_KEY:+--key "$COVERAGE_KEY"} "${required_args[@]}" "${files[@]}"
