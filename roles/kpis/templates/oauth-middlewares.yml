@@ -23,7 +23,7 @@ items:
       namespace: "{{ k8s_namespace | default('default') }}"
     spec:
       forwardAuth:
-        address: "http://{{ kpis_oauth2_proxy_service }}:{{ kpis_oauth2_proxy_port }}/oauth2/auth"
+        address: "http://{{ kpis_oauth2_proxy_service }}.{{ k8s_namespace | default('default') }}.svc.cluster.local:{{ kpis_oauth2_proxy_port }}/oauth2/auth"
         trustForwardHeader: true
         authRequestHeaders:
           - Cookie

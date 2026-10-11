@@ -223,6 +223,8 @@ def reader_edge(umami, tmp_path):
             if 'errors' in spec:
                 spec['errors']['service'] = 'oauth2-proxy'
             middlewares[item['metadata']['name']] = spec
+        assert middlewares['kpis-auth']['forwardAuth']['address'] == (
+            'http://oauth2-proxy.sample.svc.cluster.local:4180/oauth2/auth')
         routers = {'reader': {'rule': 'PathPrefix(`/`)', 'entryPoints': ['kpis'],
                               'service': 'kpis', 'middlewares': ['kpis-reader'], 'tls': {}},
                    'existing-app': {'rule': 'PathPrefix(`/`)', 'entryPoints': ['app'],
@@ -242,7 +244,9 @@ def reader_edge(umami, tmp_path):
                         '-keyout', str(tmp_path / 'key.pem'), '-out', str(tmp_path / 'cert.pem'),
                         '-days', '1', '-subj', '/CN=localhost'], check=True, capture_output=True)
         docker('run', '-d', '--name', edge, '--network', 'bridge',
-               '--link', proxy + ':oauth2-proxy', '--link', umami['name'] + ':umami',
+               '--link', proxy + ':oauth2-proxy',
+               '--link', proxy + ':oauth2-proxy.sample.svc.cluster.local',
+               '--link', umami['name'] + ':umami',
                '-p', f'127.0.0.1:{kpis_port}:8443', '-p', f'127.0.0.1:{app_port}:8444',
                '-v', f'{tmp_path}:/config:ro', 'rancher/mirrored-library-traefik:3.7.13',
                '--entrypoints.kpis.address=:8443', '--entrypoints.app.address=:8444',
