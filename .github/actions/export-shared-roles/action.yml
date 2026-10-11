@@ -5,10 +5,28 @@ inputs:
     description: Destination directory for shared roles
     required: false
     default: .shared-roles
+  _pin-resolved:
+    description: Internal recursion guard for immutable action dispatch
+    required: false
+    default: "false"
 runs:
   using: composite
   steps:
+    - name: Resolve the reviewed runtime action
+      if: ${{ inputs._pin-resolved != 'true' && hashFiles('deployment/shared-roles.ref') != '' }}
+      shell: bash
+      env:
+        STARTUP_ACTION_REPOSITORY: ${{ github.action_repository || github.repository }}
+      run: python3 "${{ github.action_path }}/../../scripts/resolve-pinned-action.py" export-shared-roles
+
+    - name: Execute the reviewed runtime action
+      if: ${{ inputs._pin-resolved != 'true' && hashFiles('deployment/shared-roles.ref') != '' }}
+      uses: ./deployment/.startup-pinned-export-shared-roles
+      env:
+        STARTUP_PIN_DESTINATION: ${{ inputs.destination }}
+
     - name: Export shared roles
+      if: ${{ inputs._pin-resolved == 'true' || hashFiles('deployment/shared-roles.ref') == '' }}
       shell: bash
       env:
         ACTION_REPO_ROOT: ${{ github.action_path }}
