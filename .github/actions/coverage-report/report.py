@@ -6,8 +6,8 @@ Usage: report.py [--title TITLE] [--key KEY] NAME=PATH [NAME=PATH ...]
 Reads only Cobertura XML, the file every service's `./make.sh test` may write
 to `<service>/coverage/cobertura.xml`; it never learns which language or tool
 produced it. A missing file is skipped silently, so services without coverage
-need no configuration. Reporting never fails the job: an unreadable file or a
-refused GitHub API call becomes a workflow warning.
+need no configuration. With --required, missing or invalid reports fail the job. Refused GitHub API
+calls remain warnings; the job summary still contains the report.
 
 Environment (set by GitHub Actions): GITHUB_STEP_SUMMARY, GITHUB_EVENT_PATH,
 GITHUB_REPOSITORY, GITHUB_API_URL, GITHUB_SHA, GITHUB_TOKEN.
@@ -56,9 +56,16 @@ def read_rate(root: ElementTree.Element, kind: str, rate_attribute: str) -> Rate
     covered, valid = root.get(f"{kind}-covered"), root.get(f"{kind}-valid")
     if covered is not None and valid is not None:
         covered_count, valid_count = int(covered), int(valid)
+        if not 0 <= covered_count <= valid_count:
+            raise ValueError(f"invalid {kind} counts")
         return Rate(100 * covered_count / valid_count if valid_count else 0.0, covered_count, valid_count)
     rate = root.get(rate_attribute)
-    return Rate(100 * float(rate), None, None) if rate is not None else Rate(0.0, None, 0)
+    if rate is None:
+        return Rate(0.0, None, 0)
+    value = float(rate)
+    if not 0 <= value <= 1:
+        raise ValueError(f"invalid {kind} rate")
+    return Rate(100 * value, None, None)
 
 
 def read_cobertura(name: str, path: Path) -> Coverage | None:
@@ -66,6 +73,8 @@ def read_cobertura(name: str, path: Path) -> Coverage | None:
         root = ElementTree.parse(path).getroot()
         if root.tag != "coverage":
             raise ValueError(f"root element is <{root.tag}>, not <coverage>")
+        if root.get("lines-valid") is None and root.get("line-rate") is None:
+            raise ValueError("missing line coverage metrics")
         return Coverage(name, read_rate(root, "lines", "line-rate"), read_rate(root, "branches", "branch-rate"))
     except (ElementTree.ParseError, ValueError) as error:
         warn(f"{name}: {path} is not a Cobertura file ({error}); skipped.")
@@ -138,9 +147,13 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--title", default="Coverage")
     parser.add_argument("--key", help="identifies the sticky comment; defaults to the title")
     parser.add_argument("files", nargs="*", metavar="NAME=PATH")
+    parser.add_argument("--required", action="store_true", help="fail on missing or invalid reports")
     arguments = parser.parse_args(argv)
+    if arguments.required and not arguments.files:
+        parser.error("--required needs at least one NAME=PATH")
 
     reports = []
+    failed = False
     for entry in arguments.files:
         name, separator, path = entry.partition("=")
         if not separator or not name or not path:
@@ -149,6 +162,14 @@ def main(argv: list[str]) -> int:
             report = read_cobertura(name, Path(path))
             if report:
                 reports.append(report)
+            elif arguments.required:
+                failed = True
+        elif arguments.required:
+            print(f"::error title=Coverage contract::{name}: {path} is missing.")
+            failed = True
+    if failed:
+        print("::error title=Coverage contract::Every configured service must produce valid Cobertura coverage.")
+        return 1
     if not reports:
         return 0
 
