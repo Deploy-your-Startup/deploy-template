@@ -62,6 +62,9 @@ To reuse an existing proxy session, configure:
 kpis_enabled: true
 kpis_access_mode: oauth2_proxy
 oauth2_proxy_enabled: true
+kpis_allowed_emails:
+  - owner@example.com
+  - analyst@example.com
 ```
 
 The existing `oauth2-proxy` Service must run in the same namespace, its session
@@ -72,8 +75,13 @@ continues through the existing application's callback.
 
 Traefik protects the entire KPI UI and data API via the existing proxy. Visiting
 `https://kpis.example.com/` opens a read-only traffic and events share after login.
-Every user accepted by that proxy can read the metrics; this mode does not map
-OAuth users to Umami accounts or grant administration. Visit `/login` and use an
+Only users whose session email exactly matches `kpis_allowed_emails` can read
+the metrics. The role requires an explicit non-empty list in OAuth mode; domains
+and wildcards are not accepted. Unlisted authenticated users receive HTTP 403,
+while the application retains its existing login policy. The allowlist uses the
+email validated by the existing OIDC proxy, not a browser-supplied header. Keep
+OIDC email verification enabled. This mode does not map OAuth users to Umami
+accounts or grant administration. Visit `/login` and use an
 Umami admin account for configuration. The exact collector paths `/script.js`,
 `/api/send` and `/api/heartbeat` remain public for anonymous tracking.
 
