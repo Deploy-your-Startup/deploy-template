@@ -1,0 +1,50 @@
+# Defaults for the oauth2-proxy role.
+#
+# Override project-specific settings without copying this shared role.
+# Override in deployment/group_vars/{all,production}.yml.
+
+oauth2_proxy_version: v7.13.0
+
+# The service oauth2-proxy puts itself in front of. It is a reverse proxy, not
+# a ForwardAuth callee, so authenticated requests are passed through to here.
+oauth2_proxy_upstream: "http://backend.{{ k8s_namespace | default('default') }}.svc.cluster.local:8000"
+
+# Public hostname oauth2-proxy is reached under. The OIDC provider has to list
+# https://<this>/oauth2/callback as an allowed callback URL.
+oauth2_proxy_host: "backend.{{ base_domain }}"
+
+# A cookie on `.example.com` is sent to every subdomain of it, which is what
+# lets a frontend on the apex talk to an API on a subdomain.
+oauth2_proxy_cookie_domain: ".{{ base_domain }}"
+oauth2_proxy_whitelist_domain: ".{{ base_domain }}"
+
+# Which routes require authentication, expressed as the routes that do NOT.
+# The leading `!` negates the regex: everything except the listed prefix skips
+# authentication. Dropping it silently makes the protected routes public, so
+# the value is asserted in the role's assert task rather than trusted.
+oauth2_proxy_skip_auth_route: "!=^/private_api"
+
+# Bearer tokens the proxy accepts instead of a session cookie, as
+# `<issuer>=<audience>`. This is the native-app path: the token is verified
+# against the issuer's JWKS and passed upstream unchanged.
+# Set auth_audience explicitly to the intended API audience.
+oauth2_proxy_extra_jwt_issuers: "{{ auth_domain }}/={{ auth_audience }}"
+
+# Required Vault values. Empty defaults let the safety assert fail clearly.
+oauth2_proxy_client_id: ""
+oauth2_proxy_client_secret: ""
+oauth2_proxy_cookie_secret: ""
+
+# Additional routes that skip authentication, each a separate --skip-auth-route.
+# Unlike the negated expression above these are plain `METHOD=regex` entries.
+#
+# The OPTIONS entry is what lets a browser on another origin write at all: a
+# CORS preflight never carries credentials, so a protected route rejects it with
+# 403 and the browser abandons the request before the real one is sent. Skipping
+# auth for OPTIONS exposes nothing - the preflight response carries no data, and
+# the POST behind it is still challenged.
+oauth2_proxy_extra_skip_auth_routes:
+  - "OPTIONS=^/private_api"
+
+# Escape hatch for flags that have no dedicated variable yet.
+oauth2_proxy_extra_args: []

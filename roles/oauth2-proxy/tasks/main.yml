@@ -1,0 +1,63 @@
+# The public/private split lives in a single flag now, so a typo in it is a
+# silent authentication bypass rather than a broken deployment. These checks
+# run before anything is applied. None of them echo a secret - only lengths and
+# booleans derived from one.
+- name: "assert oauth2-proxy is configured safely"
+  ansible.builtin.assert:
+    that:
+      # A dropped `!` turns "everything except /private_api is public" into
+      # "only /private_api is public", which makes the write endpoints
+      # anonymous without any other visible symptom.
+      - oauth2_proxy_skip_auth_route is match('^!')
+      # oauth2-proxy takes the secret either as raw bytes or base64-encoded,
+      # but the decoded length has to be exactly 16, 24 or 32. It refuses to
+      # start otherwise, and does so in a CrashLoopBackOff rather than here.
+      #
+      # The encoding it decodes with is base64.RawURLEncoding, so `+` and `/`
+      # are not valid and a standard-alphabet secret silently falls back to
+      # being read as raw bytes. Checking with a plain b64decode would pass a
+      # secret that then crashes the pod - a guard that says "fine" about a
+      # broken value is worse than no guard, so the alphabet is checked too and
+      # the translation below mirrors what oauth2-proxy actually does.
+      # Add padding for Ansible decoding; latin-1 counts bytes, not UTF-8 characters.
+      - >-
+        (oauth2_proxy_cookie_secret | b64encode | b64decode(encoding='latin-1') | length) in [16, 24, 32]
+        or (
+          oauth2_proxy_cookie_secret is match('^[A-Za-z0-9_-]+=*\\Z')
+          and ((oauth2_proxy_cookie_secret | regex_replace('=+$', '') | length) % 4) != 1
+          and (((oauth2_proxy_cookie_secret | regex_replace('=+$', '')) ~ '===')
+               | replace('-', '+') | replace('_', '/')
+               | b64decode(encoding='latin-1') | length) in [16, 24, 32]
+        )
+      - oauth2_proxy_client_id | length > 0
+      - oauth2_proxy_client_secret | length > 0
+      # Auth0 issues `iss` with a trailing slash and oauth2-proxy compares it
+      # literally, so a stripped slash rejects every token.
+      - oauth2_proxy_extra_jwt_issuers is search('=')
+    quiet: true
+    fail_msg: >-
+      oauth2-proxy configuration is unsafe or incomplete. Check that
+      oauth2_proxy_skip_auth_route still starts with '!', that the cookie
+      secret decodes to 16, 24 or 32 bytes, and that client id and secret are
+      set in the vault, and extra JWT issuers contain an issuer=audience pair.
+  tags: oauth2-proxy
+
+- name: "apply oauth2-proxy secret"
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'secret.yml') }}"
+  no_log: true
+  diff: false
+  tags: oauth2-proxy
+
+- name: "apply oauth2-proxy service"
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'service.yml') }}"
+  tags: oauth2-proxy
+
+- name: "apply oauth2-proxy deployment"
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'deployment.yml') }}"
+  tags: oauth2-proxy

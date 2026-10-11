@@ -15,6 +15,7 @@
     - ingress
     - k3s
     - kubernetes-client
+    - oauth2-proxy
     - os-upgrade
     - postgres
     - prepare-kubeconfig
