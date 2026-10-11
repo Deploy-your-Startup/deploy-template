@@ -159,4 +159,3 @@
     state: present
     definition: "{{ lookup('template', 'ingress.yml') }}"
   tags: kpis
-
