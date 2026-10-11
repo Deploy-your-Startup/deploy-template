@@ -81,6 +81,21 @@ Contributor conventions live in [AGENTS.md](AGENTS.md).
   - Builds Docker image up to the test stage
   - Runs tests in a container with database connection
   - Uses make.sh script for test execution
+  - Copies `coverage/cobertura.xml` out of the test container and returns
+    `coverage_file` when `./make.sh test` wrote it
+
+### Coverage Report Action
+- **Location**: `.github/actions/coverage-report/action.yml`
+- **Purpose**: Show test coverage per service without knowing the service's language
+- **Features**:
+  - Reads only Cobertura XML, the file a service's `./make.sh test` may write to
+    `<service>/coverage/cobertura.xml`
+  - Adds line and branch rates to the job summary and keeps one pull request
+    comment per service up to date
+  - Skips services without a coverage file; never fails the job and enforces no
+    threshold
+  - Uses a small Python script in this repository; no third-party action or
+    external coverage service
 
 ### Docker Build and Push
 

@@ -1,0 +1,34 @@
+name: "Coverage report"
+description: >-
+  Add Cobertura coverage files to the job summary and a sticky pull request
+  comment. Files that do not exist are skipped; the step never fails the job.
+inputs:
+  files:
+    description: >-
+      One NAME=PATH pair per line, for example `backend=backend/coverage/cobertura.xml`.
+    required: true
+  title:
+    description: "Heading of the summary and the comment"
+    required: false
+    default: "Coverage"
+  comment_key:
+    description: "Identifies the sticky comment to update; defaults to the title"
+    required: false
+    default: ""
+  github_token:
+    description: "Token allowed to write pull request comments"
+    required: false
+    default: ""
+runs:
+  using: "composite"
+  steps:
+    - name: "Report coverage"
+      shell: "bash"
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
+        COVERAGE_FILES: ${{ inputs.files }}
+        COVERAGE_TITLE: ${{ inputs.title }}
+        COVERAGE_KEY: ${{ inputs.comment_key }}
+      run: |
+        mapfile -t files < <(printf '%s\n' "$COVERAGE_FILES" | sed '/^[[:space:]]*$/d')
+        python3 "${{ github.action_path }}/report.py" --title "$COVERAGE_TITLE" ${COVERAGE_KEY:+--key "$COVERAGE_KEY"} "${files[@]}"
