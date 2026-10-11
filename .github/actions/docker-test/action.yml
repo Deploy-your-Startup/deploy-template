@@ -35,6 +35,20 @@ inputs:
     description: "key=path pairs for additional build contexts in docker e.g. shared=../shared"
     required: false
     default: ''
+  coverage_dir:
+    description: >-
+      Host directory mounted over `coverage/` in the container's working
+      directory while `./make.sh test` runs. Defaults to a directory below
+      runner.temp.
+    required: false
+    default: ''
+
+outputs:
+  coverage_file:
+    description: >-
+      Path of the Cobertura file the tests wrote (`coverage/cobertura.xml` in
+      the service), or empty when the service writes no coverage.
+    value: ${{ steps.test.outputs.coverage_file }}
 
 runs:
   using: "composite"
@@ -67,11 +81,18 @@ runs:
         set -e
         docker run --rm test-image:${{ inputs.tag }} ./make.sh lint
 
+    # The coverage directory is the only thing that leaves the container; the
+    # report step reads it as Cobertura and never learns the test tooling.
     - name: Run tests in container
+      id: test
       if: ${{ inputs.run_tests == 'true' }}
       shell: bash
+      env:
+        IMAGE: test-image:${{ inputs.tag }}
+        DATABASE_URL: ${{ inputs.database_url }}
+        COVERAGE_DIR: ${{ inputs.coverage_dir || format('{0}/coverage-{1}', runner.temp, inputs.tag) }}
       run: |
-        echo "Running tests with DATABASE_URL: ${{ inputs.database_url }}"
-        echo "Using image: test-image:${{ inputs.tag }}"
-        set -e
-        docker run --network host -e DATABASE_URL="${{ inputs.database_url }}" --rm test-image:${{ inputs.tag }} ./make.sh test
+        bash "${{ github.action_path }}/run-tests.sh" "$IMAGE" "$DATABASE_URL" "$COVERAGE_DIR"
+        if [ -f "$COVERAGE_DIR/cobertura.xml" ]; then
+          echo "coverage_file=$COVERAGE_DIR/cobertura.xml" >> "$GITHUB_OUTPUT"
+        fi
