@@ -35,6 +35,10 @@ inputs:
     description: "key=path pairs for additional build contexts in docker e.g. shared=../shared"
     required: false
     default: ''
+  require_coverage:
+    description: 'Run ./make.sh coverage and fail if it produces no coverage/cobertura.xml'
+    required: false
+    default: 'false'
   coverage_dir:
     description: >-
       Host directory that receives `coverage/cobertura.xml` from the
@@ -88,11 +92,12 @@ runs:
       if: ${{ inputs.run_tests == 'true' }}
       shell: bash
       env:
+        REQUIRE_COVERAGE: ${{ inputs.require_coverage }}
         IMAGE: test-image:${{ inputs.tag }}
         DATABASE_URL: ${{ inputs.database_url }}
         COVERAGE_DIR: ${{ inputs.coverage_dir || format('{0}/coverage-{1}', runner.temp, inputs.tag) }}
       run: |
-        bash "${{ github.action_path }}/run-tests.sh" "$IMAGE" "$DATABASE_URL" "$COVERAGE_DIR"
+        bash "${{ github.action_path }}/run-tests.sh" "$IMAGE" "$DATABASE_URL" "$COVERAGE_DIR" "$REQUIRE_COVERAGE"
         if [ -f "$COVERAGE_DIR/cobertura.xml" ]; then
           echo "coverage_file=$COVERAGE_DIR/cobertura.xml" >> "$GITHUB_OUTPUT"
         fi

@@ -289,3 +289,69 @@ def test_failing_tests_still_fail_the_step(tmp_path):
         assert not (tmp_path / "out/cobertura.xml").exists()
     finally:
         subprocess.run(["docker", "image", "rm", "-f", image], capture_output=True)
+
+@pytest.mark.parametrize("content", [None, "<report/>", "<coverage/>", '<coverage lines-valid="2" lines-covered="3"/>'])
+def test_required_report_rejects_missing_or_invalid_coverage(tmp_path, content):
+    # GIVEN an enabled service with no usable report
+    path = tmp_path / "cobertura.xml"
+    if content is not None:
+        path.write_text(content)
+    # WHEN the actual report CLI enforces the coverage contract
+    result = subprocess.run([sys.executable, str(REPORT), "--required", f"backend={path}"],
+                            text=True, capture_output=True)
+    # THEN CI fails with an actionable error rather than silently skipping it
+    assert result.returncode == 1
+    assert "::error title=Coverage contract::" in result.stdout
+
+
+def test_required_coverage_still_tolerates_read_only_pr_tokens(tmp_path, github):
+    # GIVEN a valid report on a fork pull request
+    api = github(status=403)
+    path = write_cobertura(tmp_path / "cobertura.xml")
+    # WHEN required reporting uses a read-only GitHub boundary
+    result, summary = report(tmp_path, api.url, "--required", f"backend={path}")
+    # THEN coverage remains visible in the summary and permissions do not fail CI
+    assert result.returncode == 0
+    assert "| backend |" in summary
+    assert "Pull request comment not written" in result.stdout
+
+
+@pytest.mark.parametrize("required,emit,exit_code,expected", [
+    ("false", False, 0, 0),
+    ("true", False, 0, 1),
+    ("true", True, 0, 0),
+    ("true", False, 7, 7),
+])
+def test_docker_harness_requires_coverage_only_when_enabled(tmp_path, required, emit, exit_code, expected):
+    # GIVEN a real service image and a stale host report from a previous run
+    require_docker()
+    service = tmp_path / "service"
+    service.mkdir()
+    (service / "make.sh").write_text(
+        '#!/bin/sh\nset -e\necho "command=$1"\n'
+        + ('mkdir -p coverage\nprintf \'<coverage lines-valid="4" lines-covered="3"/>\' > coverage/cobertura.xml\n' if emit else '')
+        + f"exit {exit_code}\n"
+    )
+    (service / "make.sh").chmod(0o755)
+    (service / "Dockerfile").write_text("FROM busybox:1.37\nWORKDIR /app\nCOPY make.sh .\n")
+    image = f"startup-coverage-contract:{os.getpid()}"
+    assert subprocess.run(["docker", "build", "-q", "-t", image, str(service)],
+                          capture_output=True, timeout=240).returncode == 0
+    output = tmp_path / "out"
+    output.mkdir()
+    (output / "cobertura.xml").write_text("stale")
+    try:
+        # WHEN the shipped script runs in optional or required mode
+        result = subprocess.run(["bash", str(ROOT / ".github/actions/docker-test/run-tests.sh"),
+                                 image, "postgres://db/test", str(output), required],
+                                text=True, capture_output=True, timeout=240)
+        # THEN it chooses the proper verb, preserves failures and never accepts stale data
+        assert result.returncode == expected, result.stdout + result.stderr
+        assert f"command={'coverage' if required == 'true' else 'test'}" in result.stdout
+        assert (output / "cobertura.xml").exists() == emit
+        if required == "true" and not emit and exit_code == 0:
+            assert "coverage/cobertura.xml is missing" in result.stdout
+        assert not subprocess.run(["docker", "ps", "-aq", "--filter", f"ancestor={image}"],
+                                  text=True, capture_output=True).stdout.strip()
+    finally:
+        subprocess.run(["docker", "image", "rm", "-f", image], capture_output=True)
