@@ -31,7 +31,7 @@ def test_ci_export_preserves_the_complete_pinned_runtime(tmp_path, action_name):
                 if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"}
     for name in ["ansible.cfg", "requirements.yml", "inventory.ini", "inventory.hcloud.yml",
                  "backup-playbook.yml", "restore-playbook.yml", "update-vms-playbook.yml",
-                 "os-upgrade-playbook.yml", "k3s-upgrade-playbook.yml"]:
+                 "os-upgrade-playbook.yml", "k3s-upgrade-playbook.yml", "dns-playbook.yml"]:
         path = ROOT / name
         if path.exists():
             expected[Path(name)] = path.read_bytes()
