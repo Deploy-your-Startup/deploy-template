@@ -76,3 +76,7 @@ runs:
         if [ -f "$source_root/k3s-upgrade-playbook.yml" ]; then
           cp "$source_root/k3s-upgrade-playbook.yml" "$destination/k3s-upgrade-playbook.yml"
         fi
+
+        if [ -f "$source_root/dns-playbook.yml" ]; then
+          cp "$source_root/dns-playbook.yml" "$destination/dns-playbook.yml"
+        fi
