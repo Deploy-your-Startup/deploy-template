@@ -109,6 +109,10 @@ runs:
           cp "$source_root/k3s-upgrade-playbook.yml" "$destination/k3s-upgrade-playbook.yml"
         fi
 
+        if [ -f "$source_root/dns-playbook.yml" ]; then
+          cp "$source_root/dns-playbook.yml" "$destination/dns-playbook.yml"
+        fi
+
     - name: Cache Ansible collections
       if: ${{ inputs._pin-resolved == 'true' || hashFiles('deployment/shared-roles.ref') == '' }}
       id: cache-collections
