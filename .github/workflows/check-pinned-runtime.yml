@@ -24,7 +24,7 @@ jobs:
           expected="$(mktemp -d)"
           git archive FETCH_HEAD | tar -x -C "$expected"
           diff -r "$expected/roles" deployment/.shared-roles/roles
-          for file in ansible.cfg requirements.yml inventory.ini inventory.hcloud.yml backup-playbook.yml restore-playbook.yml update-vms-playbook.yml os-upgrade-playbook.yml k3s-upgrade-playbook.yml; do
+          for file in ansible.cfg requirements.yml inventory.ini inventory.hcloud.yml backup-playbook.yml restore-playbook.yml update-vms-playbook.yml os-upgrade-playbook.yml k3s-upgrade-playbook.yml dns-playbook.yml; do
             if [ -f "$expected/$file" ]; then
               cmp "$expected/$file" "deployment/.shared-roles/$file"
             fi
