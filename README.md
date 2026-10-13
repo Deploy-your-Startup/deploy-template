@@ -32,6 +32,51 @@ Contributor conventions live in [AGENTS.md](AGENTS.md).
   - Standardized Docker image building and pushing
   - Deployment to configured environments
 
+### Parallel container checks
+
+`.github/workflows/build-and-deploy-service-parallel.yml` keeps the service
+inputs of the original workflow and adds `run_e2e`, `e2e_shards` (1–8, default
+2) and `e2e_directory` (default `e2e_tests`). Adopt it after syncing a release
+that contains this workflow. Existing callers can keep the original workflow.
+
+Integration checks and the production image build run concurrently. With
+`run_e2e: true`, browser checks also run before the required-checks gate. A
+failed, cancelled or unexpectedly skipped check prevents publication and
+deployment. Pull requests never publish or deploy. The production image is
+exported as an OCI archive and published after the gate without rebuilding it.
+Build caches are scoped per service and target.
+
+For an application with several services, supply `service: app` (the workflow's
+concurrency/artifact prefix) and `services` as a JSON array, for example
+`[{"service":"backend"},{"service":"frontend","run_tests":false,"require_coverage":false}]`.
+Each entry inherits the common inputs and may override its test, lint, coverage,
+platform and additional-context settings. All services build in parallel; one
+browser suite gates publication of all of them. This avoids rebuilding and
+rerunning the same browser suite separately for frontend and backend changes.
+
+The E2E directory supplies two small files:
+
+- `Dockerfile`, built with the **repository root** as its context. It contains
+  the project's test tools and application dependencies, separate from the
+  production image. Each shard builds its image directly from the shared Docker
+  layer cache, avoiding a separate image-upload/download stage before tests.
+- `compose.yml`, with a `test` service using `${E2E_IMAGE}` and the local
+  dependencies it needs. Do not publish fixed host ports or use external/shared
+  volumes. Each shard receives its own Compose project and database.
+
+The test service receives `SHARD_INDEX` and `SHARD_TOTAL` through Compose. Its
+project-owned command translates these into the test runner's options and
+writes diagnostics and any coverage to `/reports`. The shared harness knows
+no application language or browser framework. It preserves reports on failure
+and removes the disposable stack afterwards. Application test commands must
+return nonzero on failure. Use one worker per shard until tests support multiple
+isolated databases. E2E artifacts are separate from integration coverage; their
+percentages are not added or averaged.
+
+Include application, E2E, Docker context and workflow paths in the caller's
+triggers. For multi-service applications, every deployable service must wait
+for the E2E gate; a separate unconnected E2E workflow does not block deployment.
+
 ### Deployment
 - **File**: `.github/workflows/deploy.yml`
 - **Type**: Reusable workflow (`workflow_call`)
