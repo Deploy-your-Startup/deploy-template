@@ -174,7 +174,7 @@ jobs:
 
   e2e:
     if: inputs.run_e2e
-    uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/workflows/container-e2e.yml@main
+    uses: ./.github/workflows/container-e2e.yml
     permissions:
       contents: read
     with:
