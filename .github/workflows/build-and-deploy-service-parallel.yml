@@ -1,0 +1,241 @@
+name: Parallel Build and Deploy Service
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Environment to deploy"
+        required: false
+        default: production
+        type: string
+      service:
+        description: "Service to build and deploy (e.g., backend, frontend)"
+        required: true
+        type: string
+      run_tests:
+        description: "Whether to run tests"
+        required: false
+        default: true
+        type: boolean
+      run_lint:
+        description: >-
+          Whether to run `./make.sh lint` before the tests. Off by default so a
+          service that does not answer the `lint` verb yet keeps deploying;
+          switch it on once its make.sh has one.
+        required: false
+        default: false
+        type: boolean
+      require_coverage:
+        description: "Require a valid coverage/cobertura.xml from ./make.sh coverage"
+        required: false
+        default: false
+        type: boolean
+      coverage_measured_from:
+        description: "Test suites measured by the service coverage command (e.g. Integration)"
+        required: false
+        default: ""
+        type: string
+      run_e2e:
+        description: "Gate deployment on the project's container E2E suite"
+        type: boolean
+        default: false
+      e2e_shards:
+        description: "Number of isolated E2E jobs (1-8)"
+        type: number
+        default: 2
+      e2e_directory:
+        description: "Directory containing the E2E Dockerfile and compose.yml"
+        type: string
+        default: e2e_tests
+      platforms:
+        description: "Comma‑separated list of target platforms (e.g. linux/amd64,linux/arm64)"
+        required: false
+        default: "linux/amd64"
+        type: string
+      additional_build_context:
+        description: "key=path pairs for additional build contexts in docker e.g. shared=../shared"
+        required: false
+        default: ""
+        type: string
+    secrets:
+      VAULT_PASSWORD:
+        required: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.environment }}-${{ inputs.service }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-${{ inputs.service }}
+  DOCKER_IMAGE_TAG: ${{ github.run_number }}
+  DEPLOY_VERSION_PARAMETER_NAME: ${{ inputs.service }}_version
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Sticky coverage comment on pull requests (actions/coverage-report).
+      pull-requests: write
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: test_db
+          POSTGRES_PASSWORD: pa55w0rt
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: "Validate coverage configuration"
+        if: ${{ inputs.require_coverage && !inputs.run_tests }}
+        run: |
+          echo "::error::require_coverage needs run_tests=true"
+          exit 1
+
+      - name: "Setup environment"
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/setup-environment@main
+
+      # Runs whenever either check is wanted: the image is the same, and a
+      # service with no test suite still needs somewhere to be linted.
+      - name: "Test Docker Image"
+        id: test
+        if: ${{ inputs.run_tests || inputs.run_lint }}
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/docker-test@main
+        with:
+          context: ./${{ inputs.service }}
+          dockerfile: ./${{ inputs.service }}/Dockerfile
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tag: ${{ env.DOCKER_IMAGE_TAG }}
+          database_url: "postgres://postgres:pa55w0rt@localhost:5432/test_db"
+          additional_build_context: ${{ inputs.additional_build_context }}
+          run_tests: ${{ inputs.run_tests }}
+          run_lint: ${{ inputs.run_lint }}
+          require_coverage: ${{ inputs.require_coverage }}
+          cache_scope: ${{ inputs.service }}-test
+
+      # Required coverage validates the report before publishing. No percentage
+      # threshold is enforced; existing services remain opt-in.
+      - name: "Report coverage"
+        if: ${{ steps.test.outputs.coverage_file != '' }}
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/coverage-report@main
+        with:
+          required: ${{ inputs.require_coverage }}
+          title: "Coverage: ${{ inputs.service }}"
+          measured_from: ${{ inputs.coverage_measured_from }}
+          comment_key: ${{ inputs.service }}
+          files: ${{ inputs.service }}=${{ steps.test.outputs.coverage_file }}
+
+      - name: "Upload coverage"
+        if: ${{ steps.test.outputs.coverage_file != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ inputs.service }}
+          path: ${{ steps.test.outputs.coverage_file }}
+          if-no-files-found: error
+
+  # Build once while checks run. Publish the exact OCI archive after the gate;
+  # no second build can resolve a different base image or dependency.
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/setup-environment@main
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/build-push-action@v7
+        with:
+          context: ./${{ inputs.service }}
+          file: ./${{ inputs.service }}/Dockerfile
+          push: false
+          outputs: type=oci,dest=${{ runner.temp }}/production-image.tar
+          platforms: ${{ inputs.platforms }}
+          cache-from: |
+            type=gha,scope=${{ inputs.service }}-production
+            type=gha,scope=${{ inputs.service }}-test
+          cache-to: type=gha,mode=max,scope=${{ inputs.service }}-production
+          build-contexts: ${{ inputs.additional_build_context }}
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: ${{ inputs.service }}-production-image
+          path: ${{ runner.temp }}/production-image.tar
+          compression-level: 0
+          retention-days: 1
+
+  e2e:
+    if: inputs.run_e2e
+    uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/workflows/container-e2e.yml@main
+    permissions:
+      contents: read
+    with:
+      directory: ${{ inputs.e2e_directory }}
+      shards: ${{ inputs.e2e_shards }}
+      artifact_prefix: ${{ inputs.service }}
+
+  checks:
+    name: Required checks
+    if: always()
+    needs: [build, image, e2e]
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require every enabled check
+        env:
+          INTEGRATION_RESULT: ${{ needs.build.result }}
+          IMAGE_RESULT: ${{ needs.image.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+          RUN_E2E: ${{ inputs.run_e2e }}
+        run: |
+          test "$INTEGRATION_RESULT" = success
+          test "$IMAGE_RESULT" = success
+          if [ "$RUN_E2E" = true ]; then test "$E2E_RESULT" = success; fi
+
+  publish:
+    if: github.event_name != 'pull_request'
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      actions: read
+      id-token: write
+    steps:
+      - uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/setup-environment@main
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.service }}-production-image
+          path: ${{ runner.temp }}
+      - name: Install image transfer tool
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq skopeo
+      - name: Publish checked image without rebuilding
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          TAG: ${{ env.DOCKER_IMAGE_TAG }}
+        run: |
+          skopeo copy --all --authfile "$HOME/.docker/config.json" \
+            "oci-archive:$RUNNER_TEMP/production-image.tar" "docker://$IMAGE:$TAG"
+          skopeo copy --all --authfile "$HOME/.docker/config.json" \
+            "docker://$IMAGE:$TAG" "docker://$IMAGE:latest"
+      - name: Wait for infrastructure
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/wait-for-infrastructure@main
+      - name: Deploy service
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/deploy@main
+        with:
+          environment: ${{ inputs.environment }}
+          service: ${{ inputs.service }}
+          vault_password: ${{ secrets.VAULT_PASSWORD }}
