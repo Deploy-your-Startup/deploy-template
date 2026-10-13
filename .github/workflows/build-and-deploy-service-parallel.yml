@@ -151,7 +151,7 @@ jobs:
           exit 1
 
       - name: "Setup environment"
-        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/setup-environment@main
+        uses: actions/checkout@v7
 
       # Runs whenever either check is wanted: the image is the same, and a
       # service with no test suite still needs somewhere to be linted.
@@ -272,7 +272,7 @@ jobs:
       actions: read
       id-token: write
     steps:
-      - uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/setup-environment@main
+      - uses: actions/checkout@v7
       - uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
