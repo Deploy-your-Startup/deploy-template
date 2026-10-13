@@ -23,8 +23,8 @@ def test_gate_blocks_publish_unless_every_required_job_passes(integration, image
     # GIVEN the real reusable workflow and results from the GitHub boundary
     workflow = yaml.load((ROOT / ".github/workflows/build-and-deploy-service-parallel.yml").read_text(), Loader=yaml.BaseLoader)
     gate = workflow["jobs"]["checks"]
-    assert set(gate["needs"]) == {"build", "image", "e2e"}
-    assert workflow["jobs"]["publish"]["needs"] == "checks"
+    assert set(gate["needs"]) == {"prepare", "build", "image", "e2e"}
+    assert workflow["jobs"]["publish"]["needs"] == ["checks", "prepare"]
     assert workflow["jobs"]["publish"]["if"] == "github.event_name != 'pull_request'"
     # WHEN the exact gate shell executes
     result = subprocess.run(["bash", "-e", "-c", gate["steps"][0]["run"]], env={
@@ -74,3 +74,54 @@ def test_invalid_shard_fails_before_starting_any_stack(tmp_path):
     assert result.returncode == 2
     assert "1 <= SHARD_INDEX" in result.stderr
     assert not (tmp_path / "reports").exists()
+
+
+@pytest.mark.parametrize("services,success", [
+    ('[{"service":"backend"},{"service":"frontend","run_tests":false,"require_coverage":false}]', True),
+    ('[{"service":"backend"},{"service":"backend"}]', False),
+    ('[{"service":"../backend"}]', False),
+    ('[{"service":"backend","run_tests":"false"}]', False),
+    ('[{"service":"backend","run_tests":false}]', False),
+    ('[]', False),
+])
+def test_service_matrix_validates_real_caller_configuration(tmp_path, services, success):
+    # GIVEN the real workflow and a caller's JSON service definitions
+    import json
+    workflow = yaml.load((ROOT / ".github/workflows/build-and-deploy-service-parallel.yml").read_text(), Loader=yaml.BaseLoader)
+    step = workflow["jobs"]["prepare"]["steps"][0]
+    output = tmp_path / "output"
+    defaults = {"service": "backend", "run_tests": True, "run_lint": True,
+                "require_coverage": True, "coverage_measured_from": "Integration",
+                "platforms": "linux/amd64", "additional_build_context": ""}
+    # WHEN GitHub's exact matrix resolution shell runs locally
+    result = subprocess.run(["bash", "-e", "-c", step["run"]],
+        env={**os.environ, "SERVICES": services, "DEFAULTS": json.dumps(defaults), "GITHUB_OUTPUT": str(output)},
+        capture_output=True, text=True)
+    # THEN invalid matrices stop before building, while overrides preserve defaults
+    assert (result.returncode == 0) is success, result.stderr
+    if success:
+        matrix = json.loads(output.read_text().removeprefix("matrix="))
+        assert matrix["include"][0]["require_coverage"] is True
+        assert matrix["include"][1]["run_tests"] is False
+        assert matrix["include"][1]["run_lint"] is True
+
+
+@pytest.mark.parametrize("shards,success", [("1", True), ("2", True), ("8", True), ("0", False), ("9", False), ("1.5", False)])
+def test_browser_matrix_runs_without_an_image_transfer_dependency(tmp_path, shards, success):
+    # GIVEN the reusable workflow with a caller-provided shard count
+    import json
+    workflow = yaml.load((ROOT / ".github/workflows/container-e2e.yml").read_text(), Loader=yaml.BaseLoader)
+    prepare = workflow["jobs"]["prepare"]
+    output = tmp_path / "output"
+    assert len(prepare["steps"]) == 1
+    # WHEN its actual matrix preparation script executes
+    result = subprocess.run(["bash", "-e", "-c", prepare["steps"][0]["run"]],
+        env={**os.environ, "SHARDS": shards, "GITHUB_OUTPUT": str(output)}, capture_output=True, text=True)
+    # THEN every requested shard can build and test directly, without waiting for an image artifact
+    assert (result.returncode == 0) is success, result.stderr
+    if success:
+        assert json.loads(output.read_text().removeprefix("value=")) == list(range(1, int(shards) + 1))
+    steps = workflow["jobs"]["test"]["steps"]
+    build = next(step for step in steps if step.get("uses", "").startswith("docker/build-push-action@"))
+    assert build["with"]["load"] == "true"
+    assert not any(step.get("uses", "").startswith("actions/download-artifact@") for step in steps)

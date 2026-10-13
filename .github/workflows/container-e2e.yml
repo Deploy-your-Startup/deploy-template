@@ -19,7 +19,6 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.value }}
     steps:
-      - uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/setup-environment@main
       - id: matrix
         name: Validate shard count
         env:
@@ -33,21 +32,6 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write("value=" + json.dumps(list(range(1, count + 1))) + "\n")
           PYTHON
-      - name: Build browser test image once
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ${{ inputs.directory }}/Dockerfile
-          tags: startup-e2e:${{ github.run_id }}
-          outputs: type=docker,dest=${{ runner.temp }}/e2e-image.tar
-          cache-from: type=gha,scope=${{ inputs.artifact_prefix }}-e2e
-          cache-to: type=gha,mode=max,scope=${{ inputs.artifact_prefix }}-e2e
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ inputs.artifact_prefix }}-e2e-image
-          path: ${{ runner.temp }}/e2e-image.tar
-          compression-level: 1
-          retention-days: 1
   test:
     needs: prepare
     runs-on: ubuntu-latest
@@ -57,12 +41,16 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v4
+      - uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/setup-environment@main
+      - name: Build cached browser image on this runner
+        uses: docker/build-push-action@v7
         with:
-          name: ${{ inputs.artifact_prefix }}-e2e-image
-          path: ${{ runner.temp }}
-      - run: docker load --input "$RUNNER_TEMP/e2e-image.tar"
+          context: .
+          file: ${{ inputs.directory }}/Dockerfile
+          tags: startup-e2e:${{ github.run_id }}
+          load: true
+          cache-from: type=gha,scope=${{ inputs.artifact_prefix }}-e2e
+          cache-to: type=gha,mode=max,scope=${{ inputs.artifact_prefix }}-e2e
       - name: Run isolated browser shard
         uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/container-e2e@main
         with:
