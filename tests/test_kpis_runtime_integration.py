@@ -299,11 +299,13 @@ def test_oauth_reader_reuses_session_blocks_bypasses_and_keeps_tracking_public(r
                                       'screen': '1440x900', 'language': 'en-US', 'url': '/reader-test',
                                       'title': 'Reader test'}}).status == 200
         # WHEN the user signs into the EXISTING application's proxy first.
+        # Use a real protected Umami route: /private_api is only a proxy rule
+        # and its empty 404 can become a Chromium network-error document.
         page.goto(reader_edge['app_origin'] + '/oauth2/start?rd=' + urllib.parse.quote(
-            reader_edge['app_origin'] + '/private_api', safe=''))
+            reader_edge['app_origin'] + '/api/heartbeat', safe=''))
         page.locator('input[name="username"]').fill('reader')
         page.locator('button[type="submit"], input[type="submit"]').click()
-        page.wait_for_url(reader_edge['app_origin'] + '/private_api')
+        page.wait_for_url(reader_edge['app_origin'] + '/api/heartbeat')
         assert any(cookie['name'].startswith('_oauth2_proxy') for cookie in context.cookies())
         # THEN opening KPIs on a different origin reuses the existing cookie and
         # renders the read-only overview without a second password or login screen.
@@ -372,10 +374,10 @@ def test_oauth_reader_requires_an_allowed_session_email(reader_edge):
         context = browser.new_context(ignore_https_errors=True)
         page = context.new_page()
         page.goto(reader_edge['app_origin'] + '/oauth2/start?rd=' + urllib.parse.quote(
-            reader_edge['app_origin'] + '/private_api', safe=''))
+            reader_edge['app_origin'] + '/api/heartbeat', safe=''))
         page.locator('input[name="username"]').fill('test-user')
         page.locator('button[type="submit"], input[type="submit"]').click()
-        page.wait_for_url(reader_edge['app_origin'] + '/private_api')
+        page.wait_for_url(reader_edge['app_origin'] + '/api/heartbeat')
         assert context.request.get(reader_edge['app_origin'] + '/api/heartbeat').status == 200
         # WHEN accessing KPIs, THEN only an exact listed session email is allowed.
         page.goto(origin + '/')

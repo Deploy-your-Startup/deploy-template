@@ -2,6 +2,9 @@ name: Docker Test Build
 description: Build test stage and run tests inside container
 
 inputs:
+  cache_scope:
+    description: 'Build cache scope for this service test image'
+    default: test
   context:
     description: 'Build context'
     required: true
@@ -69,8 +72,8 @@ runs:
         tags: test-image:${{ inputs.tag }}
         push: false
         load: true
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        cache-from: type=gha,scope=${{ inputs.cache_scope }}
+        cache-to: type=gha,mode=max,scope=${{ inputs.cache_scope }}
         build-contexts: ${{ inputs.additional_build_context != '' && inputs.additional_build_context || '' }}
 
 
