@@ -1,0 +1,25 @@
+name: Container E2E shard
+description: Run a project-owned Compose test stack with isolated dependencies
+inputs:
+  directory:
+    description: Directory containing compose.yml
+    required: true
+  image:
+    description: Locally loaded test image
+    required: true
+  shard:
+    description: One-based shard index
+    required: true
+  total:
+    description: Total shard count
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        E2E_DIRECTORY: ${{ inputs.directory }}
+        E2E_IMAGE: ${{ inputs.image }}
+        SHARD_INDEX: ${{ inputs.shard }}
+        SHARD_TOTAL: ${{ inputs.total }}
+      run: bash "${{ github.action_path }}/run.sh" "$E2E_DIRECTORY" "$RUNNER_TEMP/e2e-reports"
