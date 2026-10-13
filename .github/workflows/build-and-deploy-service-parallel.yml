@@ -12,6 +12,10 @@ on:
         description: "Service to build and deploy (e.g., backend, frontend)"
         required: true
         type: string
+      services:
+        description: 'Optional JSON array of service objects; one E2E gate protects all services'
+        type: string
+        default: ''
       run_tests:
         description: "Whether to run tests"
         required: false
@@ -72,8 +76,53 @@ env:
   DEPLOY_VERSION_PARAMETER_NAME: ${{ inputs.service }}_version
 
 jobs:
-  build:
+  prepare:
     runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      matrix: ${{ steps.services.outputs.matrix }}
+    steps:
+      - id: services
+        name: Resolve service matrix
+        env:
+          SERVICES: ${{ inputs.services }}
+          DEFAULTS: ${{ toJSON(inputs) }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, re
+          defaults = json.loads(os.environ["DEFAULTS"])
+          services = json.loads(os.environ["SERVICES"]) if os.environ["SERVICES"] else [{"service": defaults["service"]}]
+          if not isinstance(services, list) or not 1 <= len(services) <= 16:
+              raise SystemExit("services must contain 1-16 service objects")
+          result, names = [], set()
+          keys = ("service", "run_tests", "run_lint", "require_coverage", "coverage_measured_from", "platforms", "additional_build_context")
+          for item in services:
+              if not isinstance(item, dict) or set(item) - set(keys):
+                  raise SystemExit("Unknown service configuration")
+              config = {key: item.get(key, defaults[key]) for key in keys}
+              name = config["service"]
+              if not isinstance(name, str) or not re.fullmatch(r"[a-zA-Z0-9_-]+", name) or name in names:
+                  raise SystemExit("Service names must be unique directory names")
+              names.add(name)
+              for key in ("run_tests", "run_lint", "require_coverage"):
+                  if not isinstance(config[key], bool):
+                      raise SystemExit(key + " must be boolean")
+              if config["require_coverage"] and not config["run_tests"]:
+                  raise SystemExit("require_coverage needs run_tests=true")
+              result.append(config)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("matrix=" + json.dumps({"include": result}) + "\n")
+          PYTHON
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      IMAGE_NAME: ${{ github.repository }}-${{ matrix.service }}
+      DEPLOY_VERSION_PARAMETER_NAME: ${{ matrix.service }}_version
     permissions:
       contents: read
       # Sticky coverage comment on pull requests (actions/coverage-report).
@@ -96,7 +145,7 @@ jobs:
 
     steps:
       - name: "Validate coverage configuration"
-        if: ${{ inputs.require_coverage && !inputs.run_tests }}
+        if: ${{ matrix.require_coverage && !matrix.run_tests }}
         run: |
           echo "::error::require_coverage needs run_tests=true"
           exit 1
@@ -108,19 +157,19 @@ jobs:
       # service with no test suite still needs somewhere to be linted.
       - name: "Test Docker Image"
         id: test
-        if: ${{ inputs.run_tests || inputs.run_lint }}
+        if: ${{ matrix.run_tests || matrix.run_lint }}
         uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/docker-test@main
         with:
-          context: ./${{ inputs.service }}
-          dockerfile: ./${{ inputs.service }}/Dockerfile
+          context: ./${{ matrix.service }}
+          dockerfile: ./${{ matrix.service }}/Dockerfile
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tag: ${{ env.DOCKER_IMAGE_TAG }}
           database_url: "postgres://postgres:pa55w0rt@localhost:5432/test_db"
-          additional_build_context: ${{ inputs.additional_build_context }}
-          run_tests: ${{ inputs.run_tests }}
-          run_lint: ${{ inputs.run_lint }}
-          require_coverage: ${{ inputs.require_coverage }}
-          cache_scope: ${{ inputs.service }}-test
+          additional_build_context: ${{ matrix.additional_build_context }}
+          run_tests: ${{ matrix.run_tests }}
+          run_lint: ${{ matrix.run_lint }}
+          require_coverage: ${{ matrix.require_coverage }}
+          cache_scope: ${{ matrix.service }}-test
 
       # Required coverage validates the report before publishing. No percentage
       # threshold is enforced; existing services remain opt-in.
@@ -128,24 +177,31 @@ jobs:
         if: ${{ steps.test.outputs.coverage_file != '' }}
         uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/coverage-report@main
         with:
-          required: ${{ inputs.require_coverage }}
-          title: "Coverage: ${{ inputs.service }}"
-          measured_from: ${{ inputs.coverage_measured_from }}
-          comment_key: ${{ inputs.service }}
-          files: ${{ inputs.service }}=${{ steps.test.outputs.coverage_file }}
+          required: ${{ matrix.require_coverage }}
+          title: "Coverage: ${{ matrix.service }}"
+          measured_from: ${{ matrix.coverage_measured_from }}
+          comment_key: ${{ matrix.service }}
+          files: ${{ matrix.service }}=${{ steps.test.outputs.coverage_file }}
 
       - name: "Upload coverage"
         if: ${{ steps.test.outputs.coverage_file != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-${{ inputs.service }}
+          name: coverage-${{ matrix.service }}
           path: ${{ steps.test.outputs.coverage_file }}
           if-no-files-found: error
 
   # Build once while checks run. Publish the exact OCI archive after the gate;
   # no second build can resolve a different base image or dependency.
   image:
+    needs: prepare
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      IMAGE_NAME: ${{ github.repository }}-${{ matrix.service }}
+      DEPLOY_VERSION_PARAMETER_NAME: ${{ matrix.service }}_version
     permissions:
       contents: read
     steps:
@@ -153,21 +209,21 @@ jobs:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/build-push-action@v7
         with:
-          context: ./${{ inputs.service }}
-          file: ./${{ inputs.service }}/Dockerfile
+          context: ./${{ matrix.service }}
+          file: ./${{ matrix.service }}/Dockerfile
           push: false
           outputs: type=oci,dest=${{ runner.temp }}/production-image.tar
-          platforms: ${{ inputs.platforms }}
+          platforms: ${{ matrix.platforms }}
           cache-from: |
-            type=gha,scope=${{ inputs.service }}-production
-            type=gha,scope=${{ inputs.service }}-test
-          cache-to: type=gha,mode=max,scope=${{ inputs.service }}-production
-          build-contexts: ${{ inputs.additional_build_context }}
+            type=gha,scope=${{ matrix.service }}-production
+            type=gha,scope=${{ matrix.service }}-test
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-production
+          build-contexts: ${{ matrix.additional_build_context }}
 
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request'
         with:
-          name: ${{ inputs.service }}-production-image
+          name: ${{ matrix.service }}-production-image
           path: ${{ runner.temp }}/production-image.tar
           compression-level: 0
           retention-days: 1
@@ -185,7 +241,7 @@ jobs:
   checks:
     name: Required checks
     if: always()
-    needs: [build, image, e2e]
+    needs: [prepare, build, image, e2e]
     runs-on: ubuntu-latest
     permissions: {}
     steps:
@@ -202,8 +258,14 @@ jobs:
 
   publish:
     if: github.event_name != 'pull_request'
-    needs: checks
+    needs: [checks, prepare]
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      IMAGE_NAME: ${{ github.repository }}-${{ matrix.service }}
+      DEPLOY_VERSION_PARAMETER_NAME: ${{ matrix.service }}_version
     permissions:
       contents: read
       packages: write
@@ -218,7 +280,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/download-artifact@v4
         with:
-          name: ${{ inputs.service }}-production-image
+          name: ${{ matrix.service }}-production-image
           path: ${{ runner.temp }}
       - name: Install image transfer tool
         run: sudo apt-get update -qq && sudo apt-get install -y -qq skopeo
@@ -237,5 +299,5 @@ jobs:
         uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/deploy@main
         with:
           environment: ${{ inputs.environment }}
-          service: ${{ inputs.service }}
+          service: ${{ matrix.service }}
           vault_password: ${{ secrets.VAULT_PASSWORD }}
