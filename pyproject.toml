@@ -4,6 +4,8 @@ version = "0.0.0"
 requires-python = ">=3.14"
 dependencies = [
   "ansible==14.4.0",
+  # Runtime requirement of the hetzner.hcloud collection; same pin as the CLI.
+  "hcloud==2.25.1",
   "playwright==1.63.0",
   "pytest==9.1.1",
   "pyyaml==6.0.3",
