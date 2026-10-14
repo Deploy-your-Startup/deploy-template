@@ -47,3 +47,5 @@ python3 tests/test_testing_policy_integration.py
 ```
 
 Application integration and E2E checks remain the project's own commands.
+
+For the current trigger rules and exceptions, read [when E2E runs](e2e-execution.md).
