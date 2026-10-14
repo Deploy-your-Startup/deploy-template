@@ -77,6 +77,8 @@ Include application, E2E, Docker context and workflow paths in the caller's
 triggers. For multi-service applications, every deployable service must wait
 for the E2E gate; a separate unconnected E2E workflow does not block deployment.
 
+See the [E2E execution guide](docs/e2e-execution.md) for triggers, skips and direct deployment exceptions.
+
 ### Deployment
 - **File**: `.github/workflows/deploy.yml`
 - **Type**: Reusable workflow (`workflow_call`)
