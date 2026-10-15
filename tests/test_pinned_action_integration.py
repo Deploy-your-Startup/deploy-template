@@ -13,7 +13,7 @@ SCRIPT = ROOT / '.github/scripts/resolve-pinned-action.py'
 @pytest.mark.parametrize('action', ['deploy', 'export-shared-roles'])
 def test_pin_dispatch_uses_reviewed_revision_and_does_not_persist_secrets(tmp_path, action):
     # GIVEN a consumer with an immutable pin, even after the shared main advances.
-    revision = 'a9e785324a2574989b943231cd29157193a67c12'
+    revision = '048869e2e00044c78ebcc9ce5ab80f7a3c350586'
     deployment = tmp_path / 'deployment'
     deployment.mkdir()
     (deployment / 'shared-roles.ref').write_text(revision + '\n')
