@@ -69,6 +69,12 @@ def github(tmp_path):
         def do_GET(self):
             path = self.path.removeprefix('/repos/owner/app/')
             requests.append(path)
+            token = self.headers.get('Authorization', '')
+            if (token.startswith('Bearer workflow:')
+                    and path.startswith('commits/') and '/pulls?' in path
+                    and 'pull-requests' not in token.removeprefix('Bearer workflow:').split(',')):
+                self.send_error(403)
+                return
             if path.startswith('actions/artifacts?'):
                 value = {'artifacts': list(artifacts.values())}
             elif path == 'actions/runs/100/artifacts?per_page=100':
@@ -289,6 +295,34 @@ def test_nested_loader_records_evidence_without_an_action_repository_context(git
     result, values = github['invoke']('prepare', BUILD_SHARED_REPOSITORY=repository)
     assert result.returncode == 0, result.stderr
     assert values['reuse'] == 'true', result.stdout
+
+
+@pytest.mark.parametrize('job', ['prepare', 'publish'])
+@pytest.mark.parametrize('deny_pull_requests', [False, True])
+def test_closed_pr_reuse_with_the_shipped_job_permissions(github, job, deny_pull_requests):
+    # GIVEN merged PR evidence and an API boundary enforcing each shipped job's scopes.
+    github['record']()
+    github['run']['pull_requests'] = []
+    workflow = yaml.safe_load((ROOT / '.github/workflows/build-and-deploy-service-parallel.yml').read_text())
+    scopes = {name for name, access in workflow['jobs'][job]['permissions'].items()
+              if access in ('read', 'write')}
+    if deny_pull_requests:
+        scopes.discard('pull-requests')
+    # WHEN the real selector/restorer uses those permissions after the PR closes.
+    result, values = github['invoke']('prepare' if job == 'prepare' else 'restore',
+        GH_TOKEN='workflow:' + ','.join(sorted(scopes)), BUILD_PROOF_ID='900')
+    # THEN configured access reuses images; insufficient access never authorizes publication.
+    if job == 'prepare':
+        assert result.returncode == 0, result.stderr
+        assert values['reuse'] == ('false' if deny_pull_requests else 'true'), result.stdout
+        if deny_pull_requests:
+            assert 'PR evidence rejected: HTTPError' in result.stdout
+    elif deny_pull_requests:
+        assert result.returncode != 0
+        assert not (github['runtime'] / 'production-image.tar').exists()
+    else:
+        assert result.returncode == 0, result.stderr
+        assert (github['runtime'] / 'production-image.tar').read_bytes() == github['image']
 
 
 @pytest.mark.parametrize('change', [
