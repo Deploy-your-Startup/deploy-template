@@ -185,7 +185,7 @@ jobs:
 
       - name: "Upload coverage"
         if: ${{ steps.test.outputs.coverage_file != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ matrix.service }}
           path: ${{ steps.test.outputs.coverage_file }}
@@ -206,7 +206,7 @@ jobs:
       contents: read
     steps:
       - uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/setup-environment@main
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v4
       - uses: docker/build-push-action@v7
         with:
           context: ./${{ matrix.service }}
@@ -220,7 +220,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}-production
           build-contexts: ${{ matrix.additional_build_context }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: github.event_name != 'pull_request'
         with:
           name: ${{ matrix.service }}-production-image
@@ -278,7 +278,7 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: ${{ matrix.service }}-production-image
           path: ${{ runner.temp }}
