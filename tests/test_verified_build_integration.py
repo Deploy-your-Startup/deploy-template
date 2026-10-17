@@ -97,6 +97,7 @@ def github(tmp_path):
         'referenced_workflows': [{'path': 'owner/shared/.github/workflows/build-and-deploy-service-parallel.yml@main', 'sha': REVISION}],
     }
     routes['actions/runs/100'] = run
+    routes[f'commits/{head}/pulls?per_page=100'] = json.loads(json.dumps(run['pull_requests']))
     routes['actions/runs/200'] = {**run, 'id': 200, 'event': 'push', 'head_sha': squash}
     routes['git/commits/' + merge] = {'tree': {'sha': git(source, 'rev-parse', merge + '^{tree}')},
                                     'parents': [{'sha': base}, {'sha': head}]}
@@ -149,9 +150,12 @@ def github(tmp_path):
 
 
 @pytest.mark.parametrize('merge_style', ['squash', 'merge'])
-def test_matching_push_reuses_every_image_from_successful_pr(github, merge_style):
+@pytest.mark.parametrize('closed', [False, True])
+def test_matching_push_reuses_every_image_from_successful_pr(github, merge_style, closed):
     # GIVEN a successful PR, whose tested merge tree survives a different commit SHA.
     key = github['record']()
+    if closed:
+        github['run']['pull_requests'] = []
     git(github['workspace'], 'checkout', github[merge_style])
     # WHEN the shipped selector and restore command run on the push.
     result, values = github['invoke']('prepare')

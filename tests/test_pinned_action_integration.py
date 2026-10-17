@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / '.github/scripts/resolve-pinned-action.py'
@@ -43,3 +44,36 @@ def test_pin_dispatch_rejects_mutable_or_malformed_revisions(tmp_path, revision)
     # THEN no executable wrapper is emitted.
     assert result.returncode != 0
     assert not (tmp_path / 'deployment/.startup-pinned-deploy').exists()
+
+
+@pytest.mark.parametrize('history', ['existing-runtime', 'readme-only', 'first-commit'])
+def test_synced_workflow_selects_a_pin_that_exists_in_the_owner_repository(tmp_path, history):
+    # GIVEN an independent owner repository, whose commit IDs differ from the template.
+    def git(*args):
+        return subprocess.check_output(['git', '-C', str(tmp_path), *args], text=True).strip()
+    git('init', '-b', 'main')
+    git('config', 'user.name', 'Integration Test')
+    git('config', 'user.email', 'test@example.invalid')
+    if history != 'first-commit':
+        (tmp_path / 'README.md').write_text('owner repository\n')
+        if history == 'existing-runtime':
+            action = tmp_path / '.github/actions/export-shared-roles/action.yml'
+            action.parent.mkdir(parents=True)
+            action.write_text('name: Earlier runtime\n')
+        git('add', '.')
+        git('commit', '-m', 'owner history')
+        previous = git('rev-parse', 'HEAD')
+    action = tmp_path / '.github/actions/export-shared-roles/action.yml'
+    action.parent.mkdir(parents=True, exist_ok=True)
+    action.write_text('name: Synced runtime\n')
+    git('add', '.')
+    git('commit', '-m', 'sync')
+    expected = previous if history == 'existing-runtime' else git('rev-parse', 'HEAD')
+    workflow = yaml.load((ROOT / '.github/workflows/check-pinned-runtime.yml').read_text(), Loader=yaml.BaseLoader)
+    # WHEN the actual synced workflow selects its fixture pin.
+    script = workflow['jobs']['pinned-runtime']['steps'][1]['run']
+    subprocess.run(['bash', '-e', '-c', script], cwd=tmp_path, check=True)
+    # THEN it resolves locally even on first adoption, without a template-only SHA.
+    selected = (tmp_path / 'deployment/shared-roles.ref').read_text().strip()
+    assert selected == expected
+    assert git('cat-file', '-t', selected) == 'commit'

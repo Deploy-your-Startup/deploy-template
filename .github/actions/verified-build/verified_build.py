@@ -135,10 +135,18 @@ def validate(proof_id, expected, key):
     if not re.fullmatch('[0-9a-f]{40}', source_sha):
         raise ValueError('Invalid source commit')
     commit = api('git/commits/' + source_sha)
-    pulls = run.get('pull_requests', [])
-    if len(pulls) != 1:
+    # GitHub commonly clears run.pull_requests after merging/deleting the branch.
+    # Recover the closed PR through its run-bound head commit, not a proof-supplied number.
+    if not re.fullmatch('[0-9a-f]{40}', run['head_sha']):
+        raise ValueError('Invalid PR head')
+    pulls = run.get('pull_requests') or api(f"commits/{run['head_sha']}/pulls?per_page=100")
+    parents = [parent['sha'] for parent in commit['parents']]
+    matching = {(pull['base']['sha'], pull['head']['sha']) for pull in pulls
+                if [pull['base']['sha'], pull['head']['sha']] == parents
+                and pull['head']['sha'] == run['head_sha']}
+    if len(matching) != 1:
         raise ValueError('Missing original PR merge identity')
-    base, head = pulls[0]['base']['sha'], pulls[0]['head']['sha']
+    base, head = matching.pop()
     if (not all(re.fullmatch('[0-9a-f]{40}', sha) for sha in (base, head))
             or head != run['head_sha'] or commit['tree']['sha'] != expected['tree']
             or [parent['sha'] for parent in commit['parents']] != [base, head]):
