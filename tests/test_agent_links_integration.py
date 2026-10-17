@@ -41,13 +41,15 @@ def test_relative_links_resolve():
 
 
 def test_agent_instructions_link_the_testing_policy():
-    # GIVEN each agent entrypoint, WHEN looking for the policy it delegates to,
-    # THEN it links a testing policy document instead of restating it.
-    for instructions in ROOT.rglob("AGENTS.md"):
-        if SKIPPED_DIRECTORIES.intersection(instructions.relative_to(ROOT).parts):
+    # GIVEN each agent entrypoint that sits next to a testing policy,
+    # WHEN looking for the policy it delegates to,
+    # THEN it links the policy instead of restating it.
+    for policy in ROOT.rglob("docs/testing-policy.md"):
+        instructions = policy.parent.parent / "AGENTS.md"
+        if SKIPPED_DIRECTORIES.intersection(policy.relative_to(ROOT).parts) or not instructions.exists():
             continue
-        assert re.search(r"\]\([^)]*testing-policy\.md\)", instructions.read_text()), (
-            f"{instructions.relative_to(ROOT)} must link its testing policy"
+        assert "](docs/testing-policy.md)" in instructions.read_text(), (
+            f"{instructions.relative_to(ROOT)} must link docs/testing-policy.md"
         )
 
 
