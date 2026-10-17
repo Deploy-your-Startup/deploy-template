@@ -16,6 +16,10 @@ on:
         description: 'Optional JSON array of service objects; one E2E gate protects all services'
         type: string
         default: ''
+      reuse_pr_build:
+        description: "Reuse a verified equivalent PR build on push; false forces fresh checks"
+        type: boolean
+        default: true
       run_tests:
         description: "Whether to run tests"
         required: false
@@ -67,7 +71,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.environment }}-${{ inputs.service }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   REGISTRY: ghcr.io
@@ -78,9 +82,14 @@ env:
 jobs:
   prepare:
     runs-on: ubuntu-latest
-    permissions: {}
+    permissions:
+      contents: read
+      actions: read
     outputs:
       matrix: ${{ steps.services.outputs.matrix }}
+      revision: ${{ steps.runtime.outputs.revision }}
+      reuse: ${{ steps.verified.outputs.reuse }}
+      proof_id: ${{ steps.verified.outputs.proof_id }}
     steps:
       - id: services
         name: Resolve service matrix
@@ -114,7 +123,19 @@ jobs:
               output.write("matrix=" + json.dumps({"include": result}) + "\n")
           PYTHON
 
+      - uses: actions/checkout@v7
+      - id: runtime
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/pin-ci-runtime@main
+      - id: verified
+        uses: ./.git/startup-actions/verified-build
+        with:
+          mode: prepare
+          configuration: ${{ toJSON(inputs) }}
+          matrix: ${{ steps.services.outputs.matrix }}
+          revision: ${{ steps.runtime.outputs.revision }}
+
   build:
+    if: needs.prepare.outputs.reuse != 'true'
     needs: prepare
     runs-on: ubuntu-latest
     strategy:
@@ -153,12 +174,16 @@ jobs:
       - name: "Setup environment"
         uses: actions/checkout@v7
 
+      - uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/pin-ci-runtime@main
+        with:
+          revision: ${{ needs.prepare.outputs.revision }}
+
       # Runs whenever either check is wanted: the image is the same, and a
       # service with no test suite still needs somewhere to be linted.
       - name: "Test Docker Image"
         id: test
         if: ${{ matrix.run_tests || matrix.run_lint }}
-        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/docker-test@main
+        uses: ./.git/startup-actions/docker-test
         with:
           context: ./${{ matrix.service }}
           dockerfile: ./${{ matrix.service }}/Dockerfile
@@ -175,7 +200,7 @@ jobs:
       # threshold is enforced; existing services remain opt-in.
       - name: "Report coverage"
         if: ${{ steps.test.outputs.coverage_file != '' }}
-        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/coverage-report@main
+        uses: ./.git/startup-actions/coverage-report
         with:
           required: ${{ matrix.require_coverage }}
           title: "Coverage: ${{ matrix.service }}"
@@ -194,6 +219,7 @@ jobs:
   # Build once while checks run. Publish the exact OCI archive after the gate;
   # no second build can resolve a different base image or dependency.
   image:
+    if: needs.prepare.outputs.reuse != 'true'
     needs: prepare
     runs-on: ubuntu-latest
     strategy:
@@ -205,7 +231,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/setup-environment@main
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
       - uses: docker/setup-qemu-action@v4
       - uses: docker/build-push-action@v7
         with:
@@ -221,15 +248,15 @@ jobs:
           build-contexts: ${{ matrix.additional_build_context }}
 
       - uses: actions/upload-artifact@v7
-        if: github.event_name != 'pull_request'
         with:
-          name: ${{ matrix.service }}-production-image
+          name: ${{ matrix.service }}-production-image-${{ github.run_attempt }}
           path: ${{ runner.temp }}/production-image.tar
           compression-level: 0
           retention-days: 1
 
   e2e:
-    if: inputs.run_e2e
+    needs: prepare
+    if: inputs.run_e2e && needs.prepare.outputs.reuse != 'true'
     uses: ./.github/workflows/container-e2e.yml
     permissions:
       contents: read
@@ -237,27 +264,64 @@ jobs:
       directory: ${{ inputs.e2e_directory }}
       shards: ${{ inputs.e2e_shards }}
       artifact_prefix: ${{ inputs.service }}
+      runtime_revision: ${{ needs.prepare.outputs.revision }}
 
   checks:
     name: Required checks
     if: always()
     needs: [prepare, build, image, e2e]
     runs-on: ubuntu-latest
-    permissions: {}
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Require every enabled check
         env:
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          REUSE: ${{ needs.prepare.outputs.reuse }}
+          PROOF_ID: ${{ needs.prepare.outputs.proof_id }}
           INTEGRATION_RESULT: ${{ needs.build.result }}
           IMAGE_RESULT: ${{ needs.image.result }}
           E2E_RESULT: ${{ needs.e2e.result }}
           RUN_E2E: ${{ inputs.run_e2e }}
         run: |
+          test "$PREPARE_RESULT" = success
+          if [ "$REUSE" = true ]; then
+            test -n "$PROOF_ID"
+            test "$INTEGRATION_RESULT" = skipped
+            test "$IMAGE_RESULT" = skipped
+            test "$E2E_RESULT" = skipped
+            exit 0
+          fi
           test "$INTEGRATION_RESULT" = success
           test "$IMAGE_RESULT" = success
           if [ "$RUN_E2E" = true ]; then test "$E2E_RESULT" = success; fi
 
+      - uses: actions/checkout@v7
+        if: github.event_name == 'pull_request' && inputs.reuse_pr_build
+      - uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/pin-ci-runtime@main
+        if: github.event_name == 'pull_request' && inputs.reuse_pr_build
+        with:
+          revision: ${{ needs.prepare.outputs.revision }}
+      - id: evidence
+        if: github.event_name == 'pull_request' && inputs.reuse_pr_build
+        uses: ./.git/startup-actions/verified-build
+        with:
+          mode: record
+          configuration: ${{ toJSON(inputs) }}
+          matrix: ${{ needs.prepare.outputs.matrix }}
+          revision: ${{ needs.prepare.outputs.revision }}
+      - uses: actions/upload-artifact@v7
+        if: steps.evidence.outputs.record == 'true'
+        with:
+          name: verified-pr-${{ steps.evidence.outputs.key }}
+          overwrite: true
+          path: ${{ runner.temp }}/verified-build/proof.json
+          if-no-files-found: error
+          retention-days: 1
+
   publish:
-    if: github.event_name != 'pull_request'
+    if: ${{ always() && github.event_name != 'pull_request' && needs.checks.result == 'success' && needs.prepare.result == 'success' }}
     needs: [checks, prepare]
     runs-on: ubuntu-latest
     strategy:
@@ -273,14 +337,29 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v7
+      - uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/pin-ci-runtime@main
+        if: needs.prepare.outputs.reuse == 'true'
+        with:
+          revision: ${{ needs.prepare.outputs.revision }}
+      - name: Restore verified PR image
+        if: needs.prepare.outputs.reuse == 'true'
+        uses: ./.git/startup-actions/verified-build
+        with:
+          mode: restore
+          configuration: ${{ toJSON(inputs) }}
+          matrix: ${{ needs.prepare.outputs.matrix }}
+          revision: ${{ needs.prepare.outputs.revision }}
+          proof_id: ${{ needs.prepare.outputs.proof_id }}
+          service: ${{ matrix.service }}
       - uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/download-artifact@v8
+        if: needs.prepare.outputs.reuse != 'true'
         with:
-          name: ${{ matrix.service }}-production-image
+          name: ${{ matrix.service }}-production-image-${{ github.run_attempt }}
           path: ${{ runner.temp }}
       - name: Install image transfer tool
         run: sudo apt-get update -qq && sudo apt-get install -y -qq skopeo

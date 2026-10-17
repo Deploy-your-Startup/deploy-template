@@ -25,10 +25,12 @@ def test_gate_blocks_publish_unless_every_required_job_passes(integration, image
     gate = workflow["jobs"]["checks"]
     assert set(gate["needs"]) == {"prepare", "build", "image", "e2e"}
     assert workflow["jobs"]["publish"]["needs"] == ["checks", "prepare"]
-    assert workflow["jobs"]["publish"]["if"] == "github.event_name != 'pull_request'"
+    assert "github.event_name != 'pull_request'" in workflow["jobs"]["publish"]["if"]
+    assert "needs.checks.result == 'success'" in workflow["jobs"]["publish"]["if"]
     # WHEN the exact gate shell executes
     result = subprocess.run(["bash", "-e", "-c", gate["steps"][0]["run"]], env={
-        **os.environ, "INTEGRATION_RESULT": integration, "IMAGE_RESULT": image,
+        **os.environ, "PREPARE_RESULT": "success", "REUSE": "false", "PROOF_ID": "",
+        "INTEGRATION_RESULT": integration, "IMAGE_RESULT": image,
         "E2E_RESULT": e2e, "RUN_E2E": enabled,
     }, capture_output=True)
     # THEN failed, cancelled and unexpectedly skipped checks block deployment

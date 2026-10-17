@@ -1,0 +1,49 @@
+name: Verified PR build
+description: Record, select or restore images from a successful equivalent PR run
+inputs:
+  mode:
+    description: prepare, record or restore
+    required: true
+  configuration:
+    description: Complete reusable workflow inputs as JSON
+    required: true
+  matrix:
+    description: Resolved service matrix as JSON
+    required: true
+  revision:
+    description: Immutable shared CI runtime revision
+    required: true
+  proof_id:
+    description: Selected immutable proof artifact ID
+    default: ''
+  service:
+    description: Service image to restore
+    default: ''
+outputs:
+  key:
+    description: Fingerprint of source and checks
+    value: ${{ steps.verify.outputs.key }}
+  reuse:
+    description: Whether a verified equivalent run is available
+    value: ${{ steps.verify.outputs.reuse }}
+  proof_id:
+    description: Immutable proof artifact ID
+    value: ${{ steps.verify.outputs.proof_id }}
+  record:
+    description: Whether a proof was written for upload
+    value: ${{ steps.verify.outputs.record }}
+runs:
+  using: composite
+  steps:
+    - id: verify
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        BUILD_MODE: ${{ inputs.mode }}
+        BUILD_CONFIGURATION: ${{ inputs.configuration }}
+        BUILD_MATRIX: ${{ inputs.matrix }}
+        BUILD_REVISION: ${{ inputs.revision }}
+        BUILD_PROOF_ID: ${{ inputs.proof_id }}
+        BUILD_SERVICE: ${{ inputs.service }}
+        BUILD_SHARED_REPOSITORY: ${{ github.action_repository }}
+      run: python3 "${{ github.action_path }}/verified_build.py"
