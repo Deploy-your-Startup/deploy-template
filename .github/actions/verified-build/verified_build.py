@@ -185,7 +185,9 @@ def prepare():
         for item in candidates:
             try:
                 proof = validate(item['id'], expected, key)
-            except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile, subprocess.SubprocessError):
+            except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile, subprocess.SubprocessError) as error:
+                # Report the category only; exception text can contain signed URLs.
+                print(f'PR evidence rejected: {type(error).__name__}')
                 continue
             output(reuse='true', proof_id=item['id'])
             message = f"Reuse verified PR run {proof['run_id']} for tree {expected['tree']}."

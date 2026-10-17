@@ -31,7 +31,8 @@ Update the application's workflow reference to the resulting immutable commit
 in that owner repository. Syncing does not update existing caller pins. Do not
 confuse shared deployment sync with `startup template update` (Copier).
 
-Jobs resolving evidence require `actions: read` and `contents: read`. PR jobs
+Jobs selecting or restoring evidence require `actions: read`, `contents: read`
+and `pull-requests: read` to recover the merged PR associated with its commit. PR jobs
 need no registry-write credentials or deployment secrets for reuse. The normal
 post-gate publication job retains its existing registry/deployment permissions.
 

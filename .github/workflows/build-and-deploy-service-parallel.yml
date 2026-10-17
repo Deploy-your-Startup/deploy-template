@@ -85,6 +85,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      pull-requests: read
     outputs:
       matrix: ${{ steps.services.outputs.matrix }}
       revision: ${{ steps.runtime.outputs.revision }}
@@ -334,6 +335,7 @@ jobs:
       contents: read
       packages: write
       actions: read
+      pull-requests: read
       id-token: write
     steps:
       - uses: actions/checkout@v7
