@@ -137,7 +137,7 @@ jobs:
 
       - name: "Upload coverage"
         if: ${{ steps.test.outputs.coverage_file != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ inputs.service }}
           path: ${{ steps.test.outputs.coverage_file }}
