@@ -8,6 +8,10 @@ on:
       shards:
         type: number
         default: 2
+      runtime_revision:
+        description: "Shared CI runtime resolved by the application workflow"
+        type: string
+        default: ''
       artifact_prefix:
         type: string
         default: e2e
@@ -41,7 +45,12 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
-      - uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/setup-environment@main
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/pin-ci-runtime@main
+        if: inputs.runtime_revision != ''
+        with:
+          revision: ${{ inputs.runtime_revision }}
       - name: Build cached browser image on this runner
         uses: docker/build-push-action@v7
         with:
@@ -51,7 +60,16 @@ jobs:
           load: true
           cache-from: type=gha,scope=${{ inputs.artifact_prefix }}-e2e
           cache-to: type=gha,mode=max,scope=${{ inputs.artifact_prefix }}-e2e
+      - name: Run pinned isolated browser shard
+        if: inputs.runtime_revision != ''
+        uses: ./.git/startup-actions/container-e2e
+        with:
+          directory: ${{ inputs.directory }}
+          image: startup-e2e:${{ github.run_id }}
+          shard: ${{ matrix.shard }}
+          total: ${{ inputs.shards }}
       - name: Run isolated browser shard
+        if: inputs.runtime_revision == ''
         uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/container-e2e@main
         with:
           directory: ${{ inputs.directory }}

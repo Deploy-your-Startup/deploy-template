@@ -10,22 +10,48 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: GIVEN an older role pin while the shared checkout has advanced
+        with:
+          fetch-depth: 0
+      - name: GIVEN an immutable runtime from this repository's history
         run: |
           mkdir -p deployment
-          echo 048869e2e00044c78ebcc9ce5ab80f7a3c350586 > deployment/shared-roles.ref
+          revision="$(git rev-parse HEAD)"
+          while read -r candidate; do
+            if git cat-file -e "$candidate:.github/actions/export-shared-roles/action.yml" 2>/dev/null; then
+              revision="$candidate"
+              break
+            fi
+          done < <(git rev-list --skip=1 --max-count=100 HEAD)
+          # Synced owner repositories have different commit IDs from the source.
+          # A first sync has no historical runtime; still verify its immutable HEAD.
+          printf '%s\n' "$revision" > deployment/shared-roles.ref
       - name: WHEN exporting the project's reviewed runtime through native GitHub actions
         uses: ./.github/actions/export-shared-roles
         with:
           destination: deployment/.shared-roles
-      - name: THEN the export matches the old pin, including every runtime playbook
+      - name: THEN the export matches the pin, including every runtime playbook
         run: |
-          git fetch --depth=1 origin 048869e2e00044c78ebcc9ce5ab80f7a3c350586
           expected="$(mktemp -d)"
-          git archive FETCH_HEAD | tar -x -C "$expected"
+          git archive "$(cat deployment/shared-roles.ref)" | tar -x -C "$expected"
           diff -r "$expected/roles" deployment/.shared-roles/roles
           for file in ansible.cfg requirements.yml inventory.ini inventory.hcloud.yml backup-playbook.yml restore-playbook.yml update-vms-playbook.yml os-upgrade-playbook.yml k3s-upgrade-playbook.yml dns-playbook.yml; do
             if [ -f "$expected/$file" ]; then
               cmp "$expected/$file" "deployment/.shared-roles/$file"
             fi
           done
+      - name: Load the CI helpers at this immutable revision
+        uses: ./.github/actions/pin-ci-runtime
+        with:
+          revision: ${{ github.sha }}
+      - name: Exercise native nested actions for the fresh-check fallback
+        id: fallback
+        uses: ./.git/startup-actions/verified-build
+        with:
+          mode: prepare
+          configuration: '{"reuse_pr_build":false}'
+          matrix: '{"include":[]}'
+          revision: ${{ github.sha }}
+      - name: Require the full-check decision
+        env:
+          REUSE: ${{ steps.fallback.outputs.reuse }}
+        run: test "$REUSE" = false

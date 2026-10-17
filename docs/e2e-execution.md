@@ -29,6 +29,12 @@ In the shared parallel build workflow, `run_e2e` enables the browser gate;
 explicitly enable it; inspect each project's caller rather than relying on the
 default. Every enabled shard must succeed before new production images publish.
 A failed, cancelled or unexpectedly skipped required E2E job blocks publication.
+After a push, the parallel workflow may reuse the exact image and successful
+checks from an equivalent PR run. Its verified source/configuration/runtime
+record replaces a fresh E2E execution; a missing or invalid record runs the full
+pipeline. Direct-to-main remains supported. Manual runs always check afresh.
+See [verified PR builds](verified-pr-builds.md) for eligibility, expiry and the
+`reuse_pr_build: false` escape hatch.
 Cloudflare callers use the shared container E2E workflow directly and make their
 deploy job depend on the browser job.
 

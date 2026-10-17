@@ -1,0 +1,20 @@
+name: Pin shared CI actions
+description: Resolve the reusable workflow revision and load its shared actions
+inputs:
+  revision:
+    description: Revision already resolved by the prepare job
+    default: ''
+outputs:
+  revision:
+    description: Immutable shared workflow revision, or unavailable
+    value: ${{ steps.pin.outputs.revision }}
+runs:
+  using: composite
+  steps:
+    - id: pin
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SHARED_REPOSITORY: ${{ github.action_repository || github.repository }}
+        SHARED_REVISION: ${{ inputs.revision }}
+      run: python3 "${{ github.action_path }}/pin.py"
