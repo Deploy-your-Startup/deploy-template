@@ -53,7 +53,8 @@ def umami():
         docker('run', '-d', '--name', db, '--network', 'bridge', '-e', 'POSTGRES_PASSWORD', 'postgres:18.6')
         created.append(db)
         for _ in range(60):
-            if docker('exec', db, 'pg_isready', '-U', 'postgres', check=False).returncode == 0:
+            # The initializer's temporary server accepts sockets before TCP is ready.
+            if docker('exec', db, 'pg_isready', '-h', '127.0.0.1', '-U', 'postgres', check=False).returncode == 0:
                 break
             time.sleep(1)
         else:
