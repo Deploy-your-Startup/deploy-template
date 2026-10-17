@@ -39,3 +39,19 @@ jobs:
               cmp "$expected/$file" "deployment/.shared-roles/$file"
             fi
           done
+      - name: Load the CI helpers at this immutable revision
+        uses: ./.github/actions/pin-ci-runtime
+        with:
+          revision: ${{ github.sha }}
+      - name: Exercise native nested actions for the fresh-check fallback
+        id: fallback
+        uses: ./.git/startup-actions/verified-build
+        with:
+          mode: prepare
+          configuration: '{"reuse_pr_build":false}'
+          matrix: '{"include":[]}'
+          revision: ${{ github.sha }}
+      - name: Require the full-check decision
+        env:
+          REUSE: ${{ steps.fallback.outputs.reuse }}
+        run: test "$REUSE" = false

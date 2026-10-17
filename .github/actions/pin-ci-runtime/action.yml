@@ -15,6 +15,6 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
-        SHARED_REPOSITORY: ${{ github.action_repository }}
+        SHARED_REPOSITORY: ${{ github.action_repository || github.repository }}
         SHARED_REVISION: ${{ inputs.revision }}
       run: python3 "${{ github.action_path }}/pin.py"
