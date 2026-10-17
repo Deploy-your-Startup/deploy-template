@@ -13,6 +13,9 @@ inputs:
   revision:
     description: Immutable shared CI runtime revision
     required: true
+  shared_repository:
+    description: Shared repository resolved by the pinned action loader
+    required: true
   proof_id:
     description: Selected immutable proof artifact ID
     default: ''
@@ -45,5 +48,5 @@ runs:
         BUILD_REVISION: ${{ inputs.revision }}
         BUILD_PROOF_ID: ${{ inputs.proof_id }}
         BUILD_SERVICE: ${{ inputs.service }}
-        BUILD_SHARED_REPOSITORY: ${{ github.action_repository }}
+        BUILD_SHARED_REPOSITORY: ${{ inputs.shared_repository }}
       run: python3 "${{ github.action_path }}/verified_build.py"

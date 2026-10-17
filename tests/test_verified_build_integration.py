@@ -264,6 +264,33 @@ def test_runtime_loader_pins_actions_or_disables_reuse(github, tmp_path, resolve
     assert verified['inputs']['revision']['default'] == revision
 
 
+def test_nested_loader_records_evidence_without_an_action_repository_context(github, tmp_path):
+    # GIVEN a native nested action call whose github.action_repository is empty.
+    output = tmp_path / 'pin-output'
+    subprocess.run([sys.executable, str(ROOT / '.github/actions/pin-ci-runtime/pin.py')],
+        env={**github['env'], 'SHARED_REPOSITORY': 'owner/shared',
+             'SHARED_REVISION': REVISION, 'GITHUB_OUTPUT': str(output)}, check=True)
+    wrapper = json.loads((github['workspace'] / '.git/startup-actions/verified-build/action.yml').read_text())
+    action = yaml.safe_load((ROOT / '.github/actions/verified-build/action.yml').read_text())
+    expression = action['runs']['steps'][0]['env']['BUILD_SHARED_REPOSITORY']
+    for name, value in wrapper['inputs'].items():
+        expression = expression.replace('${{ inputs.' + name + ' }}', value['default'])
+    repository = expression.replace('${{ github.action_repository }}', '')
+    # WHEN the shipped recorder receives the repository passed by the generated wrapper.
+    git(github['workspace'], 'checkout', github['merge'])
+    result, values = github['invoke']('record', GITHUB_RUN_ID='100',
+        GITHUB_EVENT_NAME='pull_request', BUILD_SHARED_REPOSITORY=repository)
+    # THEN a real proof is produced and the matching main tree reuses the checked image.
+    assert result.returncode == 0, result.stderr
+    assert values['record'] == 'true', result.stdout
+    github['upload'](900, 'verified-pr-' + values['key'],
+        zipped('proof.json', (github['runtime'] / 'verified-build/proof.json').read_bytes()))
+    git(github['workspace'], 'checkout', github['squash'])
+    result, values = github['invoke']('prepare', BUILD_SHARED_REPOSITORY=repository)
+    assert result.returncode == 0, result.stderr
+    assert values['reuse'] == 'true', result.stdout
+
+
 @pytest.mark.parametrize('change', [
     'tree', 'failed', 'cancelled', 'in_progress', 'rerun', 'foreign_repository', 'fork',
     'workflow_id', 'workflow_path', 'runtime', 'expired', 'missing_image', 'digest',

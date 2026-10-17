@@ -39,7 +39,8 @@ def main():
                             'measured_from': '', 'comment_key': '', 'github_token': ''},
         'container-e2e': {'directory': '', 'image': '', 'shard': '', 'total': ''},
         'verified-build': {'mode': '', 'configuration': '{}', 'matrix': '{}',
-                           'revision': revision, 'proof_id': '', 'service': ''},
+                           'revision': revision, 'shared_repository': repository,
+                           'proof_id': '', 'service': ''},
     }
     target = Path(os.environ['GITHUB_WORKSPACE']) / '.git/startup-actions'
     for name, inputs in definitions.items():
