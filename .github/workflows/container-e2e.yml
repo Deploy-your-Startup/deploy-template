@@ -7,7 +7,7 @@ on:
         default: e2e_tests
       shards:
         type: number
-        default: 2
+        default: 1
       runtime_revision:
         description: "Shared CI runtime resolved by the application workflow"
         type: string

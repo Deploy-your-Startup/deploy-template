@@ -36,7 +36,7 @@ Contributor conventions live in [AGENTS.md](AGENTS.md).
 
 `.github/workflows/build-and-deploy-service-parallel.yml` keeps the service
 inputs of the original workflow and adds `run_e2e`, `e2e_shards` (1–8, default
-2) and `e2e_directory` (default `e2e_tests`). Adopt it after syncing a release
+1) and `e2e_directory` (default `e2e_tests`). Adopt it after syncing a release
 that contains this workflow. Existing callers can keep the original workflow.
 
 Integration checks and the production image build run concurrently. With
