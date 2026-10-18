@@ -50,7 +50,7 @@ on:
       e2e_shards:
         description: "Number of isolated E2E jobs (1-8)"
         type: number
-        default: 2
+        default: 1
       e2e_directory:
         description: "Directory containing the E2E Dockerfile and compose.yml"
         type: string
