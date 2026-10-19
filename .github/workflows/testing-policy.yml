@@ -1,10 +1,10 @@
 name: Portable testing policy
 on:
   pull_request:
-    paths: ['**/AGENTS.md', '**/CLAUDE.md', 'docs/**', 'tests/test_testing_policy_integration.py', 'tests/test_agent_links_integration.py', '**/*.md', '.github/workflows/testing-policy.yml']
+    paths: ['**/AGENTS.md', 'docs/**', 'tests/test_testing_policy_integration.py', 'tests/test_agent_links_integration.py', '**/*.md', '.github/workflows/testing-policy.yml']
   push:
     branches: [main]
-    paths: ['**/AGENTS.md', '**/CLAUDE.md', 'docs/**', 'tests/test_testing_policy_integration.py', 'tests/test_agent_links_integration.py', '**/*.md', '.github/workflows/testing-policy.yml']
+    paths: ['**/AGENTS.md', 'docs/**', 'tests/test_testing_policy_integration.py', 'tests/test_agent_links_integration.py', '**/*.md', '.github/workflows/testing-policy.yml']
 permissions:
   contents: read
 jobs:
