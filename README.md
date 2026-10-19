@@ -540,7 +540,7 @@ With Docker running, install the pinned test dependencies and browser once:
 
 ```bash
 uv sync --locked
-uv run --locked playwright install chromium
+uv run --locked playwright install --only-shell chromium
 mise run check
 ```
 

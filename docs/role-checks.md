@@ -17,6 +17,16 @@ stand-in; it checks rows, role ownership and password-free process arguments.
 It skips when Docker is unavailable. Set RESTORE_POSTGRES_IMAGE to another
 installed Postgres image for an additional compatibility check. These checks do not provision infrastructure or execute a deployment.
 
+`./make.sh test` runs scenarios in parallel pytest-xdist workers against one
+Docker daemon. Give every container, image tag and Compose project a unique
+name, publish only on loopback ports Docker or the kernel just chose, and filter
+Docker queries by your own names or labels, never by shared image IDs. Docker
+adds an IPv6 address to the host side of each new container interface about two
+seconds after start, and Chromium aborts in-flight requests on that change with
+`ERR_NETWORK_CHANGED`. Browser checks therefore wait for those addresses before
+starting and repeat a step only when Chromium reports that error. Run one
+scenario serially with `uv run --locked pytest -n0 tests/<file>.py`.
+
 The CLI source also provides a syntax-only command. With that CLI installed:
 
 ```sh
