@@ -17,6 +17,9 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+# Each scenario starts six containers whose host addresses would interrupt the
+# browser of a neighbouring KPI scenario; run them on one worker, one by one.
+pytestmark = pytest.mark.xdist_group('kpis-browser')
 
 
 def trusted(value):
@@ -189,7 +192,8 @@ def wait_for_settled_host_links(timeout=15):
 def browse(page, step, attempts=5):
     # Containers of parallel tests can still change host addresses during a
     # browser step. Repeat a step only when Chromium aborted it for exactly that
-    # reason; every other failure, including a plain failed assertion, stays.
+    # reason, after the new addresses arrived; an immediate repeat meets the next
+    # change. Every other failure, including a plain failed assertion, stays.
     from playwright.sync_api import Error
     for attempt in range(1, attempts + 1):
         aborted = []
@@ -202,6 +206,7 @@ def browse(page, step, attempts=5):
         except (Error, AssertionError) as error:
             if attempt == attempts or not (aborted or 'ERR_NETWORK_CHANGED' in str(error)):
                 raise
+            wait_for_settled_host_links()
         finally:
             page.remove_listener('requestfailed', record)
 
