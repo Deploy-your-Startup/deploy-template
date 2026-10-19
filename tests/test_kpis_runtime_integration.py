@@ -17,6 +17,9 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+# Each scenario starts six containers whose host addresses would interrupt the
+# browser of a neighbouring KPI scenario; run them on one worker, one by one.
+pytestmark = pytest.mark.xdist_group('kpis-browser')
 
 
 def trusted(value):
@@ -159,6 +162,55 @@ def free_port():
         return sock.getsockname()[1]
 
 
+def wait_for_settled_host_links(timeout=15):
+    # Chromium aborts in-flight requests with ERR_NETWORK_CHANGED whenever a
+    # host interface gains an address. Docker's host-side veth receives its IPv6
+    # link-local address about two seconds after `docker run`, when the edge
+    # already answers, so let those addresses arrive before a browser starts.
+    # Docker Desktop keeps its veths inside a VM, invisible to the browser.
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            fields = [line.split() for line in Path('/proc/net/if_inet6').read_text().splitlines()]
+        except FileNotFoundError:
+            return
+        # Link scope (20) and no longer tentative (flag 40).
+        settled = {field[5] for field in fields if field[3] == '20' and not int(field[4], 16) & 0x40}
+        pending = []
+        for link in Path('/sys/class/net').glob('veth*'):
+            try:
+                enabled = (Path('/proc/sys/net/ipv6/conf') / link.name / 'disable_ipv6').read_text().strip() == '0'
+            except FileNotFoundError:
+                continue  # removed meanwhile
+            if enabled and link.name not in settled:
+                pending.append(link.name)
+        if not pending:
+            return
+        time.sleep(0.2)
+
+
+def browse(page, step, attempts=5):
+    # Containers of parallel tests can still change host addresses during a
+    # browser step. Repeat a step only when Chromium aborted it for exactly that
+    # reason, after the new addresses arrived; an immediate repeat meets the next
+    # change. Every other failure, including a plain failed assertion, stays.
+    from playwright.sync_api import Error
+    for attempt in range(1, attempts + 1):
+        aborted = []
+        def record(request):
+            if (request.failure or '').startswith('net::ERR_NETWORK_CHANGED'):
+                aborted.append(request.url)
+        page.on('requestfailed', record)
+        try:
+            return step()
+        except (Error, AssertionError) as error:
+            if attempt == attempts or not (aborted or 'ERR_NETWORK_CHANGED' in str(error)):
+                raise
+            wait_for_settled_host_links()
+        finally:
+            page.remove_listener('requestfailed', record)
+
+
 @pytest.fixture
 def reader_edge(umami, tmp_path, request):
     # GIVEN the existing pinned OAuth2 Proxy, a local OIDC provider boundary,
@@ -265,12 +317,25 @@ def reader_edge(umami, tmp_path, request):
                 time.sleep(1)
         else:
             pytest.fail('The rendered Traefik reader edge did not become ready')
+        wait_for_settled_host_links()
         yield {'origin': origin, 'app_origin': app_origin, 'values': values,
                'configuration': configuration, 'config_path': tmp_path / 'dynamic.yml',
                'session_email': getattr(request, 'param', 'reader@example.test')}
     finally:
         for container in reversed(created):
             docker('rm', '-f', '-v', container, check=False)
+
+
+def sign_in(page, app_origin, username):
+    # Use a real protected Umami route: /private_api is only a proxy rule
+    # and its empty 404 can become a Chromium network-error document.
+    def login():
+        page.context.clear_cookies()
+        page.goto(app_origin + '/oauth2/start?rd=' + urllib.parse.quote(app_origin + '/api/heartbeat', safe=''))
+        page.locator('input[name="username"]').fill(username)
+        page.locator('button[type="submit"], input[type="submit"]').click()
+        page.wait_for_url(app_origin + '/api/heartbeat')
+    browse(page, login)
 
 
 def test_oauth_reader_reuses_session_blocks_bypasses_and_keeps_tracking_public(reader_edge):
@@ -300,20 +365,16 @@ def test_oauth_reader_reuses_session_blocks_bypasses_and_keeps_tracking_public(r
                                       'screen': '1440x900', 'language': 'en-US', 'url': '/reader-test',
                                       'title': 'Reader test'}}).status == 200
         # WHEN the user signs into the EXISTING application's proxy first.
-        # Use a real protected Umami route: /private_api is only a proxy rule
-        # and its empty 404 can become a Chromium network-error document.
-        page.goto(reader_edge['app_origin'] + '/oauth2/start?rd=' + urllib.parse.quote(
-            reader_edge['app_origin'] + '/api/heartbeat', safe=''))
-        page.locator('input[name="username"]').fill('reader')
-        page.locator('button[type="submit"], input[type="submit"]').click()
-        page.wait_for_url(reader_edge['app_origin'] + '/api/heartbeat')
+        sign_in(page, reader_edge['app_origin'], 'reader')
         assert any(cookie['name'].startswith('_oauth2_proxy') for cookie in context.cookies())
         # THEN opening KPIs on a different origin reuses the existing cookie and
         # renders the read-only overview without a second password or login screen.
-        page.goto(origin + '/')
-        page.wait_for_url(origin + '/share/' + values['kpis_website_id'])
-        expect(page.get_by_text('reader-startup', exact=True).first).to_be_visible()
-        expect(page.get_by_text('Visitors', exact=True).first).to_be_visible()
+        def open_reader():
+            page.goto(origin + '/')
+            page.wait_for_url(origin + '/share/' + values['kpis_website_id'])
+            expect(page.get_by_text('reader-startup', exact=True).first).to_be_visible()
+            expect(page.get_by_text('Visitors', exact=True).first).to_be_visible()
+        browse(page, open_reader)
         assert page.locator('input[name="password"]').count() == 0
         # Umami's own bearer token must stay at Umami; forwarding it to the
         # OIDC proxy would reject legitimate administration as an invalid JWT.
@@ -328,12 +389,15 @@ def test_oauth_reader_reuses_session_blocks_bypasses_and_keeps_tracking_public(r
         # THEN the existing callback returns them to the reader after one login.
         fresh_context = browser.new_context(ignore_https_errors=True)
         fresh_page = fresh_context.new_page()
-        fresh_page.goto(origin + '/')
-        fresh_page.get_by_role('button', name='Sign in with OpenID Connect').click()
-        fresh_page.locator('input[name="username"]').fill('reader')
-        fresh_page.locator('button[type="submit"], input[type="submit"]').click()
-        fresh_page.wait_for_url(origin + '/share/' + values['kpis_website_id'])
-        expect(fresh_page.get_by_text('Visitors', exact=True).first).to_be_visible()
+        def sign_in_at_reader():
+            fresh_context.clear_cookies()
+            fresh_page.goto(origin + '/')
+            fresh_page.get_by_role('button', name='Sign in with OpenID Connect').click()
+            fresh_page.locator('input[name="username"]').fill('reader')
+            fresh_page.locator('button[type="submit"], input[type="submit"]').click()
+            fresh_page.wait_for_url(origin + '/share/' + values['kpis_website_id'])
+            expect(fresh_page.get_by_text('Visitors', exact=True).first).to_be_visible()
+        browse(fresh_page, sign_in_at_reader)
         fresh_context.close()
         # Preserve a separately managed public share when changing access mode.
         custom_share = context.request.post(origin + '/api/websites/' + values['kpis_website_id'] + '/shares',
@@ -348,19 +412,25 @@ def test_oauth_reader_reuses_session_blocks_bypasses_and_keeps_tracking_public(r
         configuration['http']['routers']['reader']['middlewares'] = []
         reader_edge['config_path'].write_text(yaml.safe_dump(configuration))
         context.clear_cookies()
-        page.goto(origin + '/login')
-        # Traefik coalesces file-provider updates before applying them.
-        for _ in range(40):
-            if page.locator('input[name="password"]').count():
-                break
-            time.sleep(0.25)
-            page.reload()
-        expect(page.locator('input[name="password"]')).to_be_visible()
+        def open_password_login():
+            page.goto(origin + '/login')
+            # Traefik coalesces file-provider updates before applying them.
+            for _ in range(40):
+                if page.locator('input[name="password"]').count():
+                    break
+                time.sleep(0.25)
+                page.reload()
+            expect(page.locator('input[name="password"]')).to_be_visible()
+        browse(page, open_password_login)
         assert context.request.get(origin + '/api/share/' + custom_share['slug']).status == 200
-        page.locator('input[name="username"]').fill('admin')
-        page.locator('input[name="password"]').fill(values['kpis_admin_password'])
-        page.locator('button[type="submit"], input[type="submit"]').click()
-        page.wait_for_url(lambda url: '/login' not in url)
+        def log_in_with_password():
+            if not page.locator('input[name="password"]').count():
+                page.goto(origin + '/login')
+            page.locator('input[name="username"]').fill('admin')
+            page.locator('input[name="password"]').fill(values['kpis_admin_password'])
+            page.locator('button[type="submit"], input[type="submit"]').click()
+            page.wait_for_url(lambda url: '/login' not in url)
+        browse(page, log_in_with_password)
         browser.close()
 
 
@@ -374,20 +444,20 @@ def test_oauth_reader_requires_an_allowed_session_email(reader_edge):
         browser = playwright.chromium.launch()
         context = browser.new_context(ignore_https_errors=True)
         page = context.new_page()
-        page.goto(reader_edge['app_origin'] + '/oauth2/start?rd=' + urllib.parse.quote(
-            reader_edge['app_origin'] + '/api/heartbeat', safe=''))
-        page.locator('input[name="username"]').fill('test-user')
-        page.locator('button[type="submit"], input[type="submit"]').click()
-        page.wait_for_url(reader_edge['app_origin'] + '/api/heartbeat')
+        sign_in(page, reader_edge['app_origin'], 'test-user')
         assert context.request.get(reader_edge['app_origin'] + '/api/heartbeat').status == 200
         # WHEN accessing KPIs, THEN only an exact listed session email is allowed.
-        page.goto(origin + '/')
+        def open_kpis():
+            page.goto(origin + '/')
+            if reader_edge['session_email'] == 'second+admin@example.test':
+                page.wait_for_url(origin + '/share/' + values['kpis_website_id'])
+                expect(page.get_by_text('Visitors', exact=True).first).to_be_visible()
+            else:
+                expect(page.get_by_text('Forbidden', exact=True)).to_be_visible()
+        browse(page, open_kpis)
         if reader_edge['session_email'] == 'second+admin@example.test':
-            page.wait_for_url(origin + '/share/' + values['kpis_website_id'])
-            expect(page.get_by_text('Visitors', exact=True).first).to_be_visible()
             assert context.request.get(origin + '/api/share/' + values['kpis_website_id']).status == 200
         else:
-            expect(page.get_by_text('Forbidden', exact=True)).to_be_visible()
             # User-controlled query parameters and identity headers cannot
             # replace the allowlist sent by the actual ForwardAuth manifest.
             for path in ('/', '/share/' + values['kpis_website_id'],

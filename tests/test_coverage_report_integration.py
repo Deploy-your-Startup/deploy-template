@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 from urllib.parse import parse_qs, urlsplit
+import uuid
 
 import pytest
 import yaml
@@ -397,7 +398,10 @@ def test_docker_harness_requires_coverage_only_when_enabled(tmp_path, required, 
         + f"exit {exit_code}\n"
     )
     (service / "make.sh").chmod(0o755)
-    (service / "Dockerfile").write_text("FROM busybox:1.37\nWORKDIR /app\nCOPY make.sh .\n")
+    # Identical parameter sets would otherwise share one image ID, and the
+    # ancestor filter below would see a parallel worker's live container.
+    (service / "Dockerfile").write_text(
+        f"FROM busybox:1.37\nLABEL startup.test={uuid.uuid4().hex}\nWORKDIR /app\nCOPY make.sh .\n")
     image = f"startup-coverage-contract:{os.getpid()}"
     assert subprocess.run(["docker", "build", "-q", "-t", image, str(service)],
                           capture_output=True, timeout=240).returncode == 0

@@ -22,8 +22,14 @@ jobs:
           enable-cache: true
       - name: Install pinned check dependencies
         run: uv sync --locked
+      # The KPI login E2E launches headless Chromium only; the lockfile pins
+      # its build, so the download is cached while system libraries still install.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('uv.lock') }}
       - name: Install browser for KPI login E2E
-        run: uv run --locked playwright install --with-deps chromium
+        run: uv run --locked playwright install --with-deps --only-shell chromium
       - name: Validate role structure
         run: ./make.sh lint
       - name: Check Ansible syntax and safety regressions
