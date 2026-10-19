@@ -2,15 +2,14 @@
 # =============================================================================
 # HETZNER FIREWALL CONFIGURATION
 # =============================================================================
-# Einfache Regeln:
+# Simple rules:
 # - HTTP/HTTPS public; SSH/API use separately configured administration CIDRs
-# - Alles andere nur aus dem privaten Netzwerk
+# - Everything else only from the private network
 #
-# network_mode: private schließt die öffentlichen Ports. Erreichbar ist der
-# Cluster dann nur noch über das Tailnet — Tailscale-Verkehr kommt über das
-# tailscale0-Interface und wird von der Hetzner-Firewall gar nicht gesehen.
-# Offen bleibt nur UDP 41641, damit Geräte direkt statt über ein DERP-Relay
-# verbunden werden.
+# network_mode: private closes the public ports. The cluster is then reachable
+# only through the tailnet: Tailscale traffic arrives on the tailscale0
+# interface and is never seen by the Hetzner firewall. Only UDP 41641 stays
+# open so devices connect directly instead of through a DERP relay.
 # =============================================================================
 
 - name: "Check the network mode"
