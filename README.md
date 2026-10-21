@@ -95,6 +95,16 @@ See the [E2E execution guide](docs/e2e-execution.md) for triggers, skips and dir
   - Can be reused in other workflows
   - Deploys infrastructure changes via Ansible
 
+### Cloudflare Pages
+- **File**: `.github/workflows/deploy-pages.yml`
+- **Type**: Reusable workflow (`workflow_call`)
+- **Features**:
+  - Builds a static site and publishes it with Wrangler
+  - Optional `environment`: store `CLOUDFLARE_API_TOKEN` and
+    `CLOUDFLARE_ACCOUNT_ID` as secrets of an environment limited to `main`;
+    they then override the caller's secrets and other branches cannot read
+    them. Recommended for public repositories.
+
 ## Custom Actions
 
 ### Deploy Action
