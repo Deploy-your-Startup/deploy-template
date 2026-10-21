@@ -36,7 +36,7 @@ runs:
 
     - name: "Set up uv"
       if: ${{ inputs._pin-resolved == 'true' || hashFiles('deployment/shared-roles.ref') == '' }}
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
       with:
         working-directory: deployment
         python-version: 3.14
@@ -116,7 +116,7 @@ runs:
     - name: Cache Ansible collections
       if: ${{ inputs._pin-resolved == 'true' || hashFiles('deployment/shared-roles.ref') == '' }}
       id: cache-collections
-      uses: actions/cache@v6
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: ~/.ansible/collections
         key: ansible-collections-${{ runner.os }}-${{ hashFiles('deployment/requirements.yml', 'deployment/.shared-roles/requirements.yml') }}
