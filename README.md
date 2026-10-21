@@ -239,6 +239,12 @@ The `§§deploy_your_startup.*§§` placeholders below are rendered by sync. In 
 project workflow, replace them with your GitHub owner and shared repository name.
 Enable `run_lint` only after the service implements `./make.sh lint`; it defaults
 to false. Caller workflows need a `pull_request` trigger for checks before merge.
+With `run_lint`, the workflow also runs `startup lint-contract` from the CLI
+pinned in `deployment/pyproject.toml`. It fails on a `make.sh` without `set -e`,
+`lint` without `format`, `uvx` calls, missing `.python-version`, an unpinned
+ty, Django without `django-stubs`, `uv`/`python` in `mise.toml`, Git hooks, or
+a service workflow without `pull_request` and `run_lint`. Older CLI pins only
+warn; update the pin to enforce the contract.
 
 To use these workflows in your projects, reference them in your repository's workflow files:
 
