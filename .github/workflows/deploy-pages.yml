@@ -27,6 +27,11 @@ on:
         required: false
         default: main
         type: string
+      environment:
+        description: "GitHub environment whose secrets and branch rules guard the deploy; empty uses repository secrets"
+        required: false
+        default: ""
+        type: string
     secrets:
       CLOUDFLARE_API_TOKEN:
         required: true
@@ -40,6 +45,9 @@ concurrency:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    # Environment secrets override the caller's secrets and are only released
+    # to the branches the environment allows.
+    environment: ${{ inputs.environment }}
     defaults:
       run:
         working-directory: ${{ inputs.working_directory }}
