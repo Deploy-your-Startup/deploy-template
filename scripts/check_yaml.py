@@ -1,4 +1,4 @@
-"""Parse shared role YAML and reject duplicate keys and misplaced module arguments."""
+"""Parse shared role and GitHub YAML; reject duplicate keys and misplaced module arguments."""
 from pathlib import Path
 import yaml
 
@@ -38,6 +38,12 @@ def check():
                             raise ValueError(f"{path}: task keywords inside module {key}: {sorted(misplaced)}")
         walk(data)
     print(f"Validated {len(paths)} role YAML files")
+    # GitHub rejects a workflow whose YAML does not parse, e.g. an unquoted
+    # `if:` expression containing ": ", only when a project runs it.
+    github = sorted((root / ".github").glob("**/*.yml"))
+    for path in github:
+        yaml.load(path.read_text(), Loader=UniqueLoader)
+    print(f"Validated {len(github)} workflow and action YAML files")
 
 
 if __name__ == "__main__":

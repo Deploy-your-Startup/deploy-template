@@ -122,11 +122,16 @@ jobs:
               result.append(config)
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write("matrix=" + json.dumps({"include": result}) + "\n")
+              output.write("lint=" + str(any(item["run_lint"] for item in result)).lower() + "\n")
           PYTHON
 
       - uses: actions/checkout@v7
       - id: runtime
         uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/pin-ci-runtime@main
+      # Once per run: a broken make.sh format/lint contract stops every service.
+      - name: "Check lint contract"
+        if: ${{ steps.services.outputs.lint == 'true' }}
+        uses: ./.git/startup-actions/lint-contract
       - id: verified
         uses: ./.git/startup-actions/verified-build
         with:

@@ -98,6 +98,11 @@ jobs:
       - name: "Setup environment"
         uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/setup-environment@main
 
+      # A broken make.sh format/lint contract fails before anything is built.
+      - name: "Check lint contract"
+        if: ${{ inputs.run_lint }}
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/lint-contract@main
+
       - name: "Log into registry"
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
