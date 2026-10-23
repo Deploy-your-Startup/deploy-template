@@ -16,7 +16,8 @@ while keeping ownership and room to grow.
 
 Part of [Deploy Your Startup](https://deploy-your-startup.com). For your first
 application, follow the [CLI quickstart](https://github.com/Deploy-your-Startup/cli#your-first-startup).
-Contributor conventions live in [AGENTS.md](AGENTS.md).
+Contributor conventions live in [AGENTS.md](AGENTS.md); lasting design
+decisions are recorded in [docs/adr](docs/adr/README.md).
 
 ## Available Workflows
 
@@ -79,6 +80,14 @@ for the E2E gate; a separate unconnected E2E workflow does not block deployment.
 
 See the [E2E execution guide](docs/e2e-execution.md) for triggers, skips and direct deployment exceptions.
 
+### Container E2E
+- **File**: `.github/workflows/container-e2e.yml`
+- **Type**: Reusable workflow (`workflow_call`)
+- **Features**:
+  - Runs the same `Dockerfile`/`compose.yml` harness without a production build
+  - Used by callers that deploy elsewhere, such as Cloudflare Pages; make the
+    deploy job depend on it
+
 ### Deployment
 - **File**: `.github/workflows/deploy.yml`
 - **Type**: Reusable workflow (`workflow_call`)
@@ -128,7 +137,10 @@ See the [E2E execution guide](docs/e2e-execution.md) for triggers, skips and dir
 - **Location**: `.github/actions/export-shared-roles/action.yml`
 - **Purpose**: Copy the bundled shared roles into `deployment/.shared-roles`
 - **Features**:
-  - Exports `roles/`, `requirements.yml`, `backup-playbook.yml`, and `restore-playbook.yml`
+  - Exports `roles/`, `ansible.cfg`, `requirements.yml`, both inventories and
+    the shared playbooks (`backup-`, `restore-`, `update-vms-`, `os-upgrade-`,
+    `k3s-upgrade-` and `dns-playbook.yml`)
+  - Uses the project's pinned `shared-roles.ref` commit when it exists
   - Keeps CI secret-free for shared roles access
 
 ### Docker Test Action
@@ -173,6 +185,17 @@ there is no separate bundled Docker build/push action.
   - Repository checkout
   - Environment preparation
 
+### Internal actions of the parallel workflow
+
+These are called by `build-and-deploy-service-parallel.yml`; projects do not
+call them directly.
+
+- `pin-ci-runtime`: resolves the immutable revision of the calling reusable
+  workflow and loads the shared test, coverage and browser actions from it
+- `verified-build`: records, selects and restores PR build evidence; see
+  [verified PR builds](docs/verified-pr-builds.md)
+- `container-e2e`: runs one E2E shard in its own Compose project
+
 ## Service Requirements
 
 For a service to work with these workflows, it needs to include:
@@ -183,10 +206,13 @@ For a service to work with these workflows, it needs to include:
 
 2. **make.sh** script with the following commands:
    - `test` command when `run_tests: true`
+   - `coverage` command when `require_coverage: true` (see
+     [Coverage harness contract](#coverage-harness-contract))
    - `lint` command when `run_lint: true` (checks only, no changes)
    - `format` command for local formatting and fixes
    - `run` command for starting the service
-   - The script must be executable and located at the root of the service directory
+   - The script must be executable, use `set -e` and be located at the root of
+     the service directory
 
 Example minimal Dockerfile structure:
 ```dockerfile
@@ -246,7 +272,10 @@ run `startup sync` again after the upstream change is available, then let
 `deployment/.shared-roles`.
 
 The `§§deploy_your_startup.*§§` placeholders below are rendered by sync. In a
-project workflow, replace them with your GitHub owner and shared repository name.
+project workflow, replace them with your GitHub owner and shared repository name,
+and `<commit-sha>` with a reviewed commit of that repository. Avoid `@main`: a
+moving reference changes production CI without review. See
+[releasing and pinning](docs/releasing.md).
 Enable `run_lint` only after the service implements `./make.sh lint`; it defaults
 to false. Caller workflows need a `pull_request` trigger for checks before merge.
 
@@ -271,7 +300,7 @@ on:
 
 jobs:
   build-and-deploy:
-    uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/workflows/build-and-deploy-service.yml@main
+    uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/workflows/build-and-deploy-service.yml@<commit-sha>
     with:
       service: frontend
       environment: production
@@ -307,7 +336,7 @@ jobs:
   
   deploy:
     needs: pre-deploy
-    uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/workflows/deploy.yml@main
+    uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/workflows/deploy.yml@<commit-sha>
     with:
       environment: production
     secrets:
@@ -324,7 +353,7 @@ on:
 
 jobs:
   deploy-infrastructure:
-    uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/workflows/deploy-infrastructure.yml@main
+    uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/workflows/deploy-infrastructure.yml@<commit-sha>
     with:
       environment: production
     secrets:
@@ -332,7 +361,7 @@ jobs:
       
   deploy-services:
     needs: deploy-infrastructure
-    uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/workflows/build-and-deploy-service.yml@main
+    uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/workflows/build-and-deploy-service.yml@<commit-sha>
     with:
       service: backend
       environment: production
@@ -345,7 +374,12 @@ jobs:
 The following secrets need to be configured in your repository:
 
 - `GITHUB_TOKEN`: Automatically provided by GitHub, used for container registry authentication
-- `VAULT_PASSWORD`: Required for accessing deployment secrets in Ansible vault
+- `VAULT_PASSWORD`: Required for accessing deployment secrets in Ansible vault.
+  The workflows pass it to the CLI as the `STARTUP_VAULT_PASSWORD` environment
+  variable; the CLI reads it from there or, locally, from macOS Keychain.
+- `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`: only for `deploy-pages.yml`
+
+All other deployment secrets stay in the project's Ansible Vault.
 
 ## Project Structure Requirements
 
@@ -459,6 +493,24 @@ the tailnet, and the new one would join as `<name>-1`. The `tailscale` role
 fails on that instead of letting the inventory reach the dead device — remove the
 old device in the admin console.
 
+## Backup and restore
+
+`backup-playbook.yml` and `restore-playbook.yml` run from `.shared-roles/`
+through the CLI:
+
+```bash
+startup ansible backup --working-directory deployment --environment production
+startup ansible restore --help
+```
+
+Backup writes the database dump and media archive to
+`~/Backups/<project>/<timestamp>/` on the operator's machine with owner-only
+permissions. Restore selects the latest matching artifacts unless
+`--backup-dir`, `--db-file` or `--media-file` choose them, and requires `--yes`.
+Back up every startup on a cluster, attached ones included, before `update-vms`,
+k3s or OS upgrades. Verify a restore into a disposable database before relying
+on a backup.
+
 ## Dependabot Configuration
 
 Dependabot updates GitHub Actions in this repository weekly. Application
@@ -485,6 +537,9 @@ remains part of the current deployment contract, so this is for mutually trusted
 applications under one operator. Local Postgres and media volumes are not highly
 available; back up each startup separately before cluster maintenance.
 
+The guards that keep routine runs from damaging servers, data or DNS are listed
+in [operational safeguards](docs/operational-safeguards.md).
+
 ## Ubuntu LTS release upgrades
 
 The shared `os-upgrade-playbook.yml` and `os-upgrade` role support
@@ -510,18 +565,12 @@ also qualify a real disposable k3s deployment, including release availability,
 SSH/reboot recovery, storage, networking and application HTTPS checks. Local
 integration success alone is not live release compatibility.
 
-### Immutable runtime in Actions
+## Immutable runtime in Actions
 
-When `deployment/shared-roles.ref` exists, deployment and runtime export execute
-the shared action at that exact owner-repository commit. Advancing the shared
-repository's `main` does not replace a project's reviewed roles. The CLI still
-checks `shared-roles.sha256` before Ansible runs. Projects without a pin retain
-the action's current runtime. Review a new pin before adopting role changes.
-
-For projects pinned before the complete standalone exporter was introduced,
-choose a reviewed owner-repository revision containing that exporter before
-adding the standalone pre-deploy checksum check. A runtime-equivalent commit
-can change the action implementation while leaving the role checksum unchanged.
+When `deployment/shared-roles.ref` exists, deployment and role export run the
+shared action at that exact owner-repository commit, and the CLI checks
+`shared-roles.sha256` before Ansible runs. See
+[releasing and pinning](docs/releasing.md).
 
 ## Coverage harness contract
 
@@ -542,19 +591,8 @@ The reporter does not infer test types from Cobertura or the report title.
 Only label suites whose execution contributed to the coverage data. A combined
 report measures the union of covered code, not the sum of suite percentages.
 
-This is a tested service contract, not an architecture decision.
+## Contributing
 
-### KPI access integration and browser checks
-
-With Docker running, install the pinned test dependencies and browser once:
-
-```bash
-uv sync --locked
-uv run --locked playwright install --only-shell chromium
-mise run check
-```
-
-The KPI checks use the actual Umami/Postgres images, OAuth2 Proxy and Traefik.
-A local OIDC provider replaces the external identity-provider boundary. They
-cover session reuse, direct login, anonymous/forged-header denial, public
-collection, read-only permissions and switching back to password access.
+Run `mise run check` with Docker available. The checks, including the KPI
+browser checks against real Umami, OAuth2 Proxy and Traefik images, are
+described in [checking shared roles](docs/role-checks.md).
