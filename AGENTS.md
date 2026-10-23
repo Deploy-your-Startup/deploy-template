@@ -7,6 +7,13 @@ roles, shared playbooks or workflows. Keep public instructions self-contained,
 in concise English, with neutral sample names. Users retain ownership of their
 code, accounts, servers and credentials.
 
+## Structure
+
+Keep files small and single-purpose. Split a role's tasks into files by phase
+(facts, preflight, install, upgrade) and import them from `main.yml`, as
+`cert-manager`, `os-upgrade` and `k3s` do; split a Python helper by topic.
+Prefer a new task file over growing one past a few hundred lines.
+
 ## Tests
 
 Follow [Testing policy and completion evidence](docs/testing-policy.md) and
