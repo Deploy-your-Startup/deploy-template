@@ -12,10 +12,21 @@ runtime is locked in `uv.lock`; no project or cloud credentials are needed.
 `./make.sh test` loads every role and included task file through Ansible and
 checks storage placement, teardown guards, secret censorship and Cloud-init
 rendering. The restore integration test runs the actual playbook shell scripts
-against a disposable Docker Postgres 18.6 database with a Kubernetes boundary
-stand-in; it checks rows, role ownership and password-free process arguments.
-It skips when Docker is unavailable. Set RESTORE_POSTGRES_IMAGE to another
-installed Postgres image for an additional compatibility check. These checks do not provision infrastructure or execute a deployment.
+against a disposable Docker database using the role's pinned Postgres image,
+with a Kubernetes boundary stand-in; it checks rows, role ownership and
+password-free process arguments. Docker-backed checks skip when Docker is
+unavailable. CI sets `STARTUP_REQUIRE_DOCKER_TESTS=1`, which turns a skip of the
+container E2E and OS-upgrade node checks into a failure.
+Set RESTORE_POSTGRES_IMAGE to another installed Postgres image for an
+additional compatibility check. These checks do not provision infrastructure or
+execute a deployment.
+
+The KPI browser checks also need the pinned Chromium shell once:
+
+```sh
+uv sync --locked
+uv run --locked playwright install --only-shell chromium
+```
 
 `./make.sh test` runs scenarios in parallel pytest-xdist workers against one
 Docker daemon. Give every container, image tag and Compose project a unique
@@ -28,7 +39,7 @@ starting and before repeating a step that Chromium aborted with that error, and
 share one `xdist_group` so they do not start containers under each other. Run
 one scenario serially with `uv run --locked pytest -n0 tests/<file>.py`.
 
-The CLI source also provides a syntax-only command. With that CLI installed:
+The CLI also provides a syntax-only command:
 
 ```sh
 startup ansible validate --playbook tests/roles.yml \
@@ -36,79 +47,16 @@ startup ansible validate --playbook tests/roles.yml \
 ```
 
 Use a static test inventory to avoid provider lookups. The command uses local
-files without refreshing shared roles or resolving a Vault password. It must be
-released in the CLI before users of a published installer can invoke it.
+files without refreshing shared roles or resolving a Vault password.
 
-## Changed operational behavior
+## CI workflows of this repository
 
-- New k3s installations target `v1.36.5+k3s1` and cert-manager `v1.21.2`.
-  Existing clusters retain their versions until an explicit upgrade. Gateway API
-  CRDs already managed by the cluster are preserved; an absent Gateway API uses
-  `v1.6.1`, and a partial installation stops before overwriting any CRDs.
-- Optional Hetzner charts are pinned: cloud controller `1.39.0`, CSI `2.23.0`,
-  and cert-manager webhook `0.9.0`. They require provider-specific integration
-  verification when enabled.
-- Kubernetes Secrets are applied with task output and diffs censored. k3s
-  installation tokens are passed through the environment in censored tasks.
-- Tailscale OAuth secrets are exchanged on the controller. New nodes receive
-  distinct single-use auth keys expiring after ten minutes. Existing joined
-  nodes do not request another key. A supplied `tskey-auth-` key retains its
-  configured expiry and reuse policy; prefer OAuth for repeatable provisioning.
-  Previously provisioned nodes may still hold older OAuth secrets in Cloud-init
-  state. This change does not remove or rotate those credentials.
-- Surplus workers are preserved unless the CLI invocation explicitly uses
-  `--allow-worker-teardown`. The CLI asks for confirmation; `--yes` confirms
-  that explicit request for automation. Failed drains stop deletion. Unmanaged
-  pods or emptyDir data block a drain; resolve them deliberately before retrying.
-  Release the corresponding CLI change before using this option.
-- The default Postgres image is pinned to `18.6`; existing project overrides
-  remain authoritative. Apply only a patch update within the existing major.
-  Backups run once per cluster and are stored with owner-only permissions.
-- Postgres records its storage node on the PV and constrains pod scheduling to
-  that node. Existing pod placement is adopted. New multi-node databases require
-  `postgres_storage_node` set to a Kubernetes node name. Conflicting placement or
-  an absent data node stops deployment. This is local storage, without failover;
-  node replacement still requires a verified backup and restore.
-- DNS zones use a pinned Public Suffix List, including suffixes such as `co.uk`.
-  Existing delegated zones are preferred; use `dns_zone_overrides` for an explicit
-  zone. Invalid domain or unrelated zone overrides stop before DNS writes.
-- Kubernetes modules use a pinned Python client in `/opt/startup-ansible`,
-  preserving the distribution Python environment.
-- SSH accepts new host keys and rejects changed keys. The public Kubernetes
-  API is closed by default. Set `firewall_api_source_ips` to trusted administration
-  CIDRs before updating an existing public cluster. SSH stays public by default
-  for hosted CI runners; restrict `firewall_ssh_source_ips` for fixed runners.
-- Set `cert_manager_acme_email` to an operator-owned ACME contact address if
-  contact notifications are wanted. No personal maintainer address is supplied.
+| Workflow | Runs |
+| --- | --- |
+| `check-roles.yml` | `./make.sh lint` and `./make.sh test` with Docker checks required |
+| `check-pinned-runtime.yml` | the immutable runtime dispatch of the composite actions |
+| `testing-policy.yml` | Markdown link and testing-policy documentation checks |
 
-## Pinning a project
-
-With the matching CLI revision installed, resolve a reviewed owner-repository ref:
-
-```sh
-startup ansible pin --working-directory deployment --version <reviewed-ref>
-```
-
-Commit `shared-roles.ref` and `shared-roles.sha256` with the pinned CLI dependency
-and lock file. Subsequent defaults use that immutable commit. CI exports must
-match the checksum of role files and runtime configuration, even without Git
-metadata; a mismatch fails before role execution. Updating `main` alone does not
-update a pinned project's roles. Explicitly update and review both pin files.
-The first Git-backed setup records the resolved commit automatically.
-
-CI passes Vault credentials in the scoped `STARTUP_VAULT_PASSWORD` environment.
-The CLI streams the deploy key directly to `ssh-add`; no password enters argv.
-These pinning and credential commands require the corresponding CLI change;
-older published installers do not implement them.
-
-## Verification before release
-
-After local checks, exercise a fresh single-node project in an authorized test
-account: first install, repeat infrastructure, application deployment, DNS and
-HTTPS, backup and restore into a disposable database, then explicit upgrades.
-Also verify private-node bootstrap with Tailscale and the ten-minute join-key
-window. Static checks do not establish successful provisioning or production
-readiness. Review optional charts and provider settings separately.
-
-Shared-role changes reach applications only after `startup sync` updates the
-owner's `deploy-your-startup` repository and a CLI run refreshes `.shared-roles`.
+The behaviour these checks protect is described in
+[operational safeguards](operational-safeguards.md). Release steps live in
+[releasing](releasing.md).

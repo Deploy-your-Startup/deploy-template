@@ -17,7 +17,8 @@ Deploy-your-Startup/deploy-template     source of truth
 The owner is inferred from the project's own Git remote; the repository name is
 fixed (`DEFAULT_SHARED_REPO_NAME` in the CLI). Merging here is only the first
 hop: no project runs the change until the owner syncs and reviews its role pin.
-The same applies to the shared workflows.
+The same applies to the shared workflows. Sync, pinning and release
+verification are described in [releasing](releasing.md).
 
 To test an unmerged role change against a real project, push the branch to the
 owner copy and pass `--version <branch>`; `setup_ansible` fetches and checks out
