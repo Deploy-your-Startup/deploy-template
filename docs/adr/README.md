@@ -9,3 +9,4 @@ records from 0100. Supersede a record with a new one instead of rewriting it.
 | [0001](0001-owner-copy-and-pinned-roles.md) | Projects consume shared roles through an owner copy and an immutable pin |
 | [0002](0002-reuse-verified-pr-builds.md) | Pushes may reuse a verified, equivalent PR build |
 | [0003](0003-ssh-tunnel-instead-of-public-api.md) | The Kubernetes API is closed; access goes through SSH |
+| [0004](0004-separate-verification-and-publication.md) | Cancel obsolete verification while protecting application publication |

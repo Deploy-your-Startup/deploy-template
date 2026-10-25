@@ -303,7 +303,8 @@ def test_closed_pr_reuse_with_the_shipped_job_permissions(github, job, deny_pull
     # GIVEN merged PR evidence and an API boundary enforcing each shipped job's scopes.
     github['record']()
     github['run']['pull_requests'] = []
-    workflow = yaml.safe_load((ROOT / '.github/workflows/build-and-deploy-service-parallel.yml').read_text())
+    filename = 'verify-service-images.yml' if job == 'prepare' else 'publish-service-images.yml'
+    workflow = yaml.safe_load((ROOT / '.github/workflows' / filename).read_text())
     scopes = {name for name, access in workflow['jobs'][job]['permissions'].items()
               if access in ('read', 'write')}
     if deny_pull_requests:
@@ -422,7 +423,7 @@ def test_restore_fails_closed_if_evidence_changes_after_selection(github, failur
 ])
 def test_real_workflow_gate_preserves_full_fallback(reuse, prepare, proof, integration, image, e2e, expected):
     # GIVEN the shipped gate, including skipped jobs from the Actions scheduler.
-    workflow = yaml.load((ROOT / '.github/workflows/build-and-deploy-service-parallel.yml').read_text(), Loader=yaml.BaseLoader)
+    workflow = yaml.load((ROOT / '.github/workflows/verify-service-images.yml').read_text(), Loader=yaml.BaseLoader)
     gate = workflow['jobs']['checks']['steps'][0]['run']
     # WHEN its actual shell decides whether publication is allowed.
     result = subprocess.run(['bash', '-e', '-c', gate], env={**os.environ,

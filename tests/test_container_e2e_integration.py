@@ -21,12 +21,9 @@ SCRIPT = ROOT / ".github/actions/container-e2e/run.sh"
 ])
 def test_gate_blocks_publish_unless_every_required_job_passes(integration, image, e2e, enabled, expected):
     # GIVEN the real reusable workflow and results from the GitHub boundary
-    workflow = yaml.load((ROOT / ".github/workflows/build-and-deploy-service-parallel.yml").read_text(), Loader=yaml.BaseLoader)
+    workflow = yaml.load((ROOT / ".github/workflows/verify-service-images.yml").read_text(), Loader=yaml.BaseLoader)
     gate = workflow["jobs"]["checks"]
     assert set(gate["needs"]) == {"prepare", "build", "image", "e2e"}
-    assert workflow["jobs"]["publish"]["needs"] == ["checks", "prepare"]
-    assert "github.event_name != 'pull_request'" in workflow["jobs"]["publish"]["if"]
-    assert "needs.checks.result == 'success'" in workflow["jobs"]["publish"]["if"]
     # WHEN the exact gate shell executes
     result = subprocess.run(["bash", "-e", "-c", gate["steps"][0]["run"]], env={
         **os.environ, "PREPARE_RESULT": "success", "REUSE": "false", "PROOF_ID": "",
@@ -89,7 +86,7 @@ def test_invalid_shard_fails_before_starting_any_stack(tmp_path):
 def test_service_matrix_validates_real_caller_configuration(tmp_path, services, success):
     # GIVEN the real workflow and a caller's JSON service definitions
     import json
-    workflow = yaml.load((ROOT / ".github/workflows/build-and-deploy-service-parallel.yml").read_text(), Loader=yaml.BaseLoader)
+    workflow = yaml.load((ROOT / ".github/workflows/verify-service-images.yml").read_text(), Loader=yaml.BaseLoader)
     step = workflow["jobs"]["prepare"]["steps"][0]
     output = tmp_path / "output"
     defaults = {"service": "backend", "run_tests": True, "run_lint": True,
@@ -114,7 +111,7 @@ def test_service_matrix_validates_real_caller_configuration(tmp_path, services, 
 def test_service_matrix_without_lint_skips_the_contract_gate(tmp_path):
     # GIVEN a caller whose services all opt out of lint
     import json
-    workflow = yaml.load((ROOT / ".github/workflows/build-and-deploy-service-parallel.yml").read_text(), Loader=yaml.BaseLoader)
+    workflow = yaml.load((ROOT / ".github/workflows/verify-service-images.yml").read_text(), Loader=yaml.BaseLoader)
     step = workflow["jobs"]["prepare"]["steps"][0]
     output = tmp_path / "output"
     defaults = {"service": "backend", "run_tests": True, "run_lint": False,

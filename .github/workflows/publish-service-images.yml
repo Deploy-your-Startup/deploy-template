@@ -1,0 +1,109 @@
+name: Publish Checked Service Images
+
+on:
+  workflow_call:
+    inputs:
+      configuration:
+        type: string
+        required: true
+      matrix:
+        type: string
+        required: true
+      revision:
+        type: string
+        required: true
+      reuse:
+        type: string
+        required: true
+      proof_id:
+        type: string
+        required: true
+      environment:
+        type: string
+        required: true
+    secrets:
+      VAULT_PASSWORD:
+        required: true
+
+env:
+  REGISTRY: ghcr.io
+  DOCKER_IMAGE_TAG: ${{ github.run_number }}
+
+jobs:
+  current:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      current: ${{ steps.current.outputs.current }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/pin-ci-runtime@main
+        with:
+          revision: ${{ inputs.revision }}
+      - id: current
+        uses: ./.git/startup-actions/current-deployment
+
+  publish:
+    if: github.event_name != 'pull_request' && needs.current.outputs.current == 'true'
+    needs: current
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(inputs.matrix) }}
+    env:
+      IMAGE_NAME: ${{ github.repository }}-${{ matrix.service }}
+      DEPLOY_VERSION_PARAMETER_NAME: ${{ matrix.service }}_version
+    permissions:
+      contents: read
+      packages: write
+      actions: read
+      pull-requests: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/pin-ci-runtime@main
+        if: inputs.reuse == 'true'
+        with:
+          revision: ${{ inputs.revision }}
+      - name: Restore verified PR image
+        if: inputs.reuse == 'true'
+        uses: ./.git/startup-actions/verified-build
+        with:
+          mode: restore
+          configuration: ${{ inputs.configuration }}
+          matrix: ${{ inputs.matrix }}
+          revision: ${{ inputs.revision }}
+          proof_id: ${{ inputs.proof_id }}
+          service: ${{ matrix.service }}
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        if: inputs.reuse != 'true'
+        with:
+          name: ${{ matrix.service }}-production-image-${{ github.run_attempt }}
+          path: ${{ runner.temp }}
+      - name: Install image transfer tool
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq skopeo
+      - name: Publish checked image without rebuilding
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          TAG: ${{ env.DOCKER_IMAGE_TAG }}
+        run: |
+          skopeo copy --all --authfile "$HOME/.docker/config.json" \
+            "oci-archive:$RUNNER_TEMP/production-image.tar" "docker://$IMAGE:$TAG"
+          skopeo copy --all --authfile "$HOME/.docker/config.json" \
+            "docker://$IMAGE:$TAG" "docker://$IMAGE:latest"
+      - name: Wait for infrastructure
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/wait-for-infrastructure@main
+      - name: Deploy service
+        uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/deploy@main
+        with:
+          environment: ${{ inputs.environment }}
+          service: ${{ matrix.service }}
+          vault_password: ${{ secrets.VAULT_PASSWORD }}
+
