@@ -173,6 +173,17 @@ def test_matching_push_reuses_every_image_from_successful_pr(github, merge_style
     assert (github['runtime'] / 'production-image.tar').read_bytes() == github['image']
 
 
+def test_local_mode_evidence_cannot_replace_ci_e2e_after_policy_changes(github):
+    # GIVEN a successful PR whose browser checks were assigned to local execution.
+    github['env']['BUILD_E2E_MODE'] = 'local'
+    github['record']()
+    # WHEN the same source is pushed after the operator requires CI verification.
+    result, values = github['invoke']('prepare', BUILD_E2E_MODE='ci')
+    # THEN the changed execution policy invalidates reuse and full checks run.
+    assert result.returncode == 0, result.stderr
+    assert values['reuse'] == 'false'
+
+
 def test_direct_push_without_any_pr_runs_full_checks(github):
     # GIVEN a repository with no successful PR evidence (direct-to-main is allowed).
     # WHEN the actual prepare command runs on push.

@@ -10,6 +10,38 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / ".github/actions/container-e2e/run.sh"
 
 
+@pytest.mark.parametrize("mode,event,expected", [
+    ("ci", "push", "true"),
+    ("ci", "pull_request", "true"),
+    ("local", "push", "false"),
+    ("local", "pull_request", "false"),
+    ("local", "workflow_dispatch", "true"),
+    ("ci", "workflow_dispatch", "true"),
+    ("typo", "push", None),
+])
+def test_shared_e2e_mode_executes_the_actual_selection_step(tmp_path, mode, event, expected):
+    # GIVEN the shipped workflow and the operator's repository execution policy.
+    workflow = yaml.load((ROOT / ".github/workflows/container-e2e.yml").read_text(), Loader=yaml.BaseLoader)
+    step = workflow["jobs"]["prepare"]["steps"][1]
+    output, summary = tmp_path / "output", tmp_path / "summary"
+    # WHEN the real selection command runs, before any browser image or test stack.
+    result = subprocess.run(["bash", "-e", "-c", step["run"]], env={
+        **os.environ, "E2E_MODE": mode, "GITHUB_EVENT_NAME": event,
+        "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary),
+    }, capture_output=True, text=True)
+    # THEN local mode is explicit, manual runs execute CI E2E, and invalid values fail.
+    if expected is None:
+        assert result.returncode != 0
+        assert not output.exists()
+    else:
+        assert result.returncode == 0, result.stderr
+        assert output.read_text() == "run=" + expected + "\n"
+        assert workflow["jobs"]["test"]["if"] == "needs.prepare.outputs.run == 'true'"
+        if expected == "false":
+            assert "not executed in CI" in summary.read_text()
+            assert "does not verify that run" in summary.read_text()
+
+
 @pytest.mark.parametrize("integration,image,e2e,enabled,expected", [
     ("success", "success", "success", "true", 0),
     ("success", "success", "skipped", "false", 0),
@@ -133,7 +165,7 @@ def test_browser_matrix_runs_without_an_image_transfer_dependency(tmp_path, shar
     workflow = yaml.load((ROOT / ".github/workflows/container-e2e.yml").read_text(), Loader=yaml.BaseLoader)
     prepare = workflow["jobs"]["prepare"]
     output = tmp_path / "output"
-    assert len(prepare["steps"]) == 1
+    assert len(prepare["steps"]) == 2
     # WHEN its actual matrix preparation script executes
     result = subprocess.run(["bash", "-e", "-c", prepare["steps"][0]["run"]],
         env={**os.environ, "SHARDS": shards, "GITHUB_OUTPUT": str(output)}, capture_output=True, text=True)

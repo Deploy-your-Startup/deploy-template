@@ -72,6 +72,13 @@ platform and additional-context settings. All services build in parallel; one
 browser suite gates publication of all of them. This avoids rebuilding and
 rerunning the same browser suite separately for frontend and backend changes.
 
+The shared browser workflow supports an optional repository variable
+`STARTUP_E2E_MODE=local`. Automatic runs then rely on recorded local E2E
+verification and omit browser image builds/tests; manual workflow runs still
+execute E2E. Unset/`ci` retains CI execution. Keep `run_e2e: true` so the shared
+policy and reporting remain connected. See the
+[testing decision](docs/adr/0005-local-or-ci-e2e.md) before selecting local mode.
+
 The E2E directory supplies two small files:
 
 - `Dockerfile`, built with the **repository root** as its context. It contains

@@ -38,6 +38,10 @@ a skipped provider scenario is unverified, not a pass. State remaining gaps when
 reporting completion. Local checks alone do not prove a production deployment.
 
 Preserve E2E as a deployment gate where the project deploys an application.
+The explicit local-execution exception is defined in
+[ADR 0005](adr/0005-local-or-ci-e2e.md): local mode requires a recorded successful
+local E2E run of the final source before approval. CI must label browser checks
+as not executed, and manual workflow runs retain full CI E2E execution.
 Every enabled shard must succeed before publishing or deployment. Use isolated
 data for each shard, retain reports and failure logs, and clean up disposable
 resources. Improve speed through caching and independent parallel checks rather

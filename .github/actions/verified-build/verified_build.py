@@ -87,6 +87,7 @@ def identity():
         'schema': SCHEMA, 'repository': os.environ['GITHUB_REPOSITORY'],
         'tree': git('rev-parse', 'HEAD^{tree}'), 'runtime': revision,
         'configuration': configuration, 'matrix': matrix,
+        'e2e_mode': os.environ.get('BUILD_E2E_MODE', 'ci'),
         'workflow_id': run['workflow_id'], 'workflow_path': run['path'].split('@')[0],
     }
     key = hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()

@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.value }}
+      run: ${{ steps.mode.outputs.run }}
     steps:
       - id: matrix
         name: Validate shard count
@@ -36,8 +37,26 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write("value=" + json.dumps(list(range(1, count + 1))) + "\n")
           PYTHON
+      - id: mode
+        name: Select CI or local E2E
+        env:
+          E2E_MODE: ${{ vars.STARTUP_E2E_MODE || 'ci' }}
+        run: |
+          case "$E2E_MODE" in
+            ci|local) ;;
+            *) echo '::error::STARTUP_E2E_MODE must be ci or local'; exit 1 ;;
+          esac
+          if [ "$E2E_MODE" = local ] && [ "$GITHUB_EVENT_NAME" != workflow_dispatch ]; then
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+            echo '### E2E: local mode' >> "$GITHUB_STEP_SUMMARY"
+            echo 'Browser E2E was not executed in CI. The operator must record a successful local run for this change; this job does not verify that run.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+            echo '### E2E: CI execution required' >> "$GITHUB_STEP_SUMMARY"
+          fi
   test:
     needs: prepare
+    if: needs.prepare.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:

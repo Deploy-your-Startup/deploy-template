@@ -29,6 +29,12 @@ In the shared parallel build workflow, `run_e2e` enables the browser gate;
 explicitly enable it; inspect each project's caller rather than relying on the
 default. Every enabled shard must succeed before new production images publish.
 A failed, cancelled or unexpectedly skipped required E2E job blocks publication.
+The shared container workflow also supports `STARTUP_E2E_MODE=local` as an
+explicit repository setting. Automatic runs then omit browser builds and tests;
+the operator must record local verification before approving the change. Manual
+workflow runs execute E2E even in local mode. The job summary distinguishes local
+mode from a CI test pass. Unset/`ci` keeps CI execution; other values fail.
+See [local or CI E2E](adr/0005-local-or-ci-e2e.md).
 After a push, the parallel workflow may reuse the exact image and successful
 checks from an equivalent PR run. Its verified source/configuration/runtime
 record replaces a fresh E2E execution; a missing or invalid record runs the full
