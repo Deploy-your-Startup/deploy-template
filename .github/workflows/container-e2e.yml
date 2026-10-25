@@ -38,19 +38,19 @@ jobs:
               output.write("value=" + json.dumps(list(range(1, count + 1))) + "\n")
           PYTHON
       - id: mode
-        name: Select CI or local E2E
+        name: Select CI browser tests
         env:
-          E2E_MODE: ${{ vars.STARTUP_E2E_MODE || 'ci' }}
+          RUN_E2E_IN_CI: ${{ vars.RUN_E2E_IN_CI || 'true' }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
-          case "$E2E_MODE" in
-            ci|local) ;;
-            *) echo '::error::STARTUP_E2E_MODE must be ci or local'; exit 1 ;;
+          case "$RUN_E2E_IN_CI" in
+            true|false) ;;
+            *) echo '::error::RUN_E2E_IN_CI must be true or false'; exit 1 ;;
           esac
-          if [ "$E2E_MODE" = local ] && [ "$GITHUB_EVENT_NAME" != workflow_dispatch ] && [ "$PR_AUTHOR" != 'dependabot[bot]' ]; then
+          if [ "$RUN_E2E_IN_CI" = false ] && [ "$PR_AUTHOR" != 'dependabot[bot]' ]; then
             echo 'run=false' >> "$GITHUB_OUTPUT"
-            echo '### E2E: local mode' >> "$GITHUB_STEP_SUMMARY"
-            echo 'Browser E2E was not executed in CI. The operator must record a successful local run for this change; this job does not verify that run.' >> "$GITHUB_STEP_SUMMARY"
+            echo '### E2E: disabled in CI' >> "$GITHUB_STEP_SUMMARY"
+            echo 'Browser E2E was not executed in CI. Run all tests locally; CI does not verify that run.' >> "$GITHUB_STEP_SUMMARY"
           else
             echo 'run=true' >> "$GITHUB_OUTPUT"
             echo '### E2E: CI execution required' >> "$GITHUB_STEP_SUMMARY"

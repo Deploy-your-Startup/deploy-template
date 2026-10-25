@@ -11,15 +11,15 @@ SCRIPT = ROOT / ".github/actions/container-e2e/run.sh"
 
 
 @pytest.mark.parametrize("mode,event,author,expected", [
-    ("ci", "push", "owner", "true"),
-    ("ci", "pull_request", "owner", "true"),
-    ("local", "push", "owner", "false"),
-    ("local", "pull_request", "owner", "false"),
-    ("local", "workflow_dispatch", "owner", "true"),
-    ("ci", "workflow_dispatch", "owner", "true"),
+    ("true", "push", "owner", "true"),
+    ("true", "pull_request", "owner", "true"),
+    ("false", "push", "owner", "false"),
+    ("false", "pull_request", "owner", "false"),
+    ("false", "workflow_dispatch", "owner", "false"),
+    ("true", "workflow_dispatch", "owner", "true"),
     ("typo", "push", "owner", None),
-    ("local", "pull_request", "dependabot[bot]", "true"),
-    ("ci", "pull_request", "dependabot[bot]", "true"),
+    ("false", "pull_request", "dependabot[bot]", "true"),
+    ("true", "pull_request", "dependabot[bot]", "true"),
 ])
 def test_shared_e2e_mode_executes_the_actual_selection_step(tmp_path, mode, event, author, expected):
     # GIVEN the shipped workflow and the operator's repository execution policy.
@@ -28,11 +28,11 @@ def test_shared_e2e_mode_executes_the_actual_selection_step(tmp_path, mode, even
     output, summary = tmp_path / "output", tmp_path / "summary"
     # WHEN the real selection command runs, before any browser image or test stack.
     result = subprocess.run(["bash", "-e", "-c", step["run"]], env={
-        **os.environ, "E2E_MODE": mode, "GITHUB_EVENT_NAME": event,
+        **os.environ, "RUN_E2E_IN_CI": mode, "GITHUB_EVENT_NAME": event,
         "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary),
         "PR_AUTHOR": author, "GITHUB_ACTOR": "owner-rerunning-a-bot-pr",
     }, capture_output=True, text=True)
-    # THEN local mode is explicit, manual runs execute CI E2E, and invalid values fail.
+    # THEN local mode is explicit, Dependabot runs execute CI E2E, and invalid values fail.
     if expected is None:
         assert result.returncode != 0
         assert not output.exists()

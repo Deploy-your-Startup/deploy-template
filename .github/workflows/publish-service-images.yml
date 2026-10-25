@@ -26,7 +26,7 @@ on:
         required: true
 
 env:
-  STARTUP_E2E_MODE: ${{ vars.STARTUP_E2E_MODE || 'ci' }}
+  RUN_E2E_IN_CI: ${{ vars.RUN_E2E_IN_CI || 'true' }}
   REGISTRY: ghcr.io
   DOCKER_IMAGE_TAG: ${{ github.run_number }}
 
