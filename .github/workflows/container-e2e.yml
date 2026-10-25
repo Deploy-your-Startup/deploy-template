@@ -2,6 +2,10 @@ name: Container E2E
 on:
   workflow_call:
     inputs:
+      run_e2e:
+        description: Run browser tests in CI; Dependabot PRs always run them
+        type: boolean
+        default: true
       directory:
         type: string
         default: e2e_tests
@@ -40,14 +44,14 @@ jobs:
       - id: mode
         name: Select CI browser tests
         env:
-          RUN_E2E_IN_CI: ${{ vars.RUN_E2E_IN_CI || 'true' }}
+          RUN_E2E: ${{ inputs.run_e2e }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
-          case "$RUN_E2E_IN_CI" in
+          case "$RUN_E2E" in
             true|false) ;;
-            *) echo '::error::RUN_E2E_IN_CI must be true or false'; exit 1 ;;
+            *) echo '::error::RUN_E2E must be true or false'; exit 1 ;;
           esac
-          if [ "$RUN_E2E_IN_CI" = false ] && [ "$PR_AUTHOR" != 'dependabot[bot]' ]; then
+          if [ "$RUN_E2E" = false ] && [ "$PR_AUTHOR" != 'dependabot[bot]' ]; then
             echo 'run=false' >> "$GITHUB_OUTPUT"
             echo '### E2E: disabled in CI' >> "$GITHUB_STEP_SUMMARY"
             echo 'Browser E2E was not executed in CI. Run all tests locally; CI does not verify that run.' >> "$GITHUB_STEP_SUMMARY"

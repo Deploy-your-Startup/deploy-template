@@ -76,7 +76,6 @@ on:
         value: ${{ jobs.prepare.outputs.proof_id }}
 
 env:
-  RUN_E2E_IN_CI: ${{ vars.RUN_E2E_IN_CI || 'true' }}
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}-${{ inputs.service }}
   DOCKER_IMAGE_TAG: ${{ github.run_number }}
@@ -265,11 +264,12 @@ jobs:
 
   e2e:
     needs: prepare
-    if: inputs.run_e2e && needs.prepare.outputs.reuse != 'true'
+    if: needs.prepare.outputs.reuse != 'true'
     uses: ./.github/workflows/container-e2e.yml
     permissions:
       contents: read
     with:
+      run_e2e: ${{ inputs.run_e2e }}
       directory: ${{ inputs.e2e_directory }}
       shards: ${{ inputs.e2e_shards }}
       artifact_prefix: ${{ inputs.service }}
@@ -292,7 +292,7 @@ jobs:
           INTEGRATION_RESULT: ${{ needs.build.result }}
           IMAGE_RESULT: ${{ needs.image.result }}
           E2E_RESULT: ${{ needs.e2e.result }}
-          RUN_E2E: ${{ inputs.run_e2e }}
+          RUN_E2E: 'true'
         run: |
           test "$PREPARE_RESULT" = success
           if [ "$REUSE" = true ]; then

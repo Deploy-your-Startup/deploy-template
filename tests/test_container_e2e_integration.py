@@ -28,7 +28,7 @@ def test_shared_e2e_mode_executes_the_actual_selection_step(tmp_path, mode, even
     output, summary = tmp_path / "output", tmp_path / "summary"
     # WHEN the real selection command runs, before any browser image or test stack.
     result = subprocess.run(["bash", "-e", "-c", step["run"]], env={
-        **os.environ, "RUN_E2E_IN_CI": mode, "GITHUB_EVENT_NAME": event,
+        **os.environ, "RUN_E2E": mode, "GITHUB_EVENT_NAME": event,
         "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary),
         "PR_AUTHOR": author, "GITHUB_ACTOR": "owner-rerunning-a-bot-pr",
     }, capture_output=True, text=True)

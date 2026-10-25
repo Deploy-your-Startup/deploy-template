@@ -2,8 +2,8 @@
 
 **Status:** Accepted
 
-Run lint and all tests locally before completing code changes. Record failures
-and skips.
+Run lint and all tests locally before completing code changes. Read `run_e2e`
+in the project workflow: `false` skips the additional CI browser run; `true`
+enables it. Dependabot PRs always run E2E in CI.
 
-`RUN_E2E_IN_CI=false` skips the additional CI browser run. Unset/`true` enables
-it. Dependabot PRs always run E2E in CI. Keep this rule in the shared workflow.
+Keep this rule in the shared workflow. No repository variable is needed.

@@ -72,9 +72,8 @@ platform and additional-context settings. All services build in parallel; one
 browser suite gates publication of all of them. This avoids rebuilding and
 rerunning the same browser suite separately for frontend and backend changes.
 
-Run all tests locally. `RUN_E2E_IN_CI=false` skips the additional CI browser
-run; unset/`true` enables it. Dependabot PRs always run E2E in CI. Keep
-`run_e2e: true` in callers. See the [testing decision](docs/adr/0005-local-or-ci-e2e.md).
+Run all tests locally. `run_e2e: false` skips the additional CI browser
+run; `run_e2e: true` enables it. Dependabot PRs always run E2E in CI. See the [testing decision](docs/adr/0005-local-or-ci-e2e.md).
 
 The E2E directory supplies two small files:
 

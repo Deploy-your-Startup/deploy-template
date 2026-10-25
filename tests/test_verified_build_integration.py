@@ -175,10 +175,11 @@ def test_matching_push_reuses_every_image_from_successful_pr(github, merge_style
 
 def test_local_mode_evidence_cannot_replace_ci_e2e_after_policy_changes(github):
     # GIVEN a successful PR whose browser checks were assigned to local execution.
-    github['env']['BUILD_RUN_E2E_IN_CI'] = 'false'
+    github['configuration']['run_e2e'] = False
+    github['env']['BUILD_CONFIGURATION'] = json.dumps(github['configuration'])
     github['record']()
     # WHEN the same source is pushed after the operator requires CI verification.
-    result, values = github['invoke']('prepare', BUILD_RUN_E2E_IN_CI='true')
+    result, values = github['invoke']('prepare', BUILD_CONFIGURATION=json.dumps({**github['configuration'], 'run_e2e': True}))
     # THEN the changed execution policy invalidates reuse and full checks run.
     assert result.returncode == 0, result.stderr
     assert values['reuse'] == 'false'
