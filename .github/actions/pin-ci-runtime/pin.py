@@ -38,6 +38,7 @@ def main():
         'coverage-report': {'files': '', 'required': 'false', 'title': 'Coverage',
                             'measured_from': '', 'comment_key': '', 'github_token': ''},
         'container-e2e': {'directory': '', 'image': '', 'shard': '', 'total': ''},
+        'lint-contract': {},
         'verified-build': {'mode': '', 'configuration': '{}', 'matrix': '{}',
                            'revision': revision, 'shared_repository': repository,
                            'proof_id': '', 'service': ''},

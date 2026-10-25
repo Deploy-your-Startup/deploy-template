@@ -9,3 +9,7 @@ run = "./make.sh test"
 [tasks.check]
 description = "Check role structure, regressions and whitespace"
 run = "./make.sh check"
+
+[tasks.format]
+description = "No formatter configured; kept for the make.sh contract"
+run = "./make.sh format"

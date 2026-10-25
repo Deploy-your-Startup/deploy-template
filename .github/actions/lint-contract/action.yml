@@ -1,0 +1,27 @@
+name: Lint contract
+description: Check the project's make.sh format/lint contract with its pinned startup CLI
+
+runs:
+  using: composite
+  steps:
+    - name: "Set up uv"
+      if: ${{ hashFiles('deployment/pyproject.toml') != '' }}
+      uses: astral-sh/setup-uv@v7
+      with:
+        working-directory: deployment
+        python-version: 3.14
+        enable-cache: true
+        cache-dependency-glob: |
+          pyproject.toml
+          uv.lock
+
+    # The deployment project pins the startup CLI; checks use that revision.
+    - name: "Install the pinned startup CLI"
+      if: ${{ hashFiles('deployment/pyproject.toml') != '' }}
+      shell: bash
+      working-directory: ./deployment
+      run: uv sync --frozen --python 3.14
+
+    - name: "Check lint contract"
+      shell: bash
+      run: bash "${{ github.action_path }}/check.sh"

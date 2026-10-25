@@ -102,10 +102,31 @@ def test_service_matrix_validates_real_caller_configuration(tmp_path, services, 
     # THEN invalid matrices stop before building, while overrides preserve defaults
     assert (result.returncode == 0) is success, result.stderr
     if success:
-        matrix = json.loads(output.read_text().removeprefix("matrix="))
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        matrix = json.loads(outputs["matrix"])
         assert matrix["include"][0]["require_coverage"] is True
         assert matrix["include"][1]["run_tests"] is False
         assert matrix["include"][1]["run_lint"] is True
+        # The lint contract gate runs once when any service lints.
+        assert outputs["lint"] == "true"
+
+
+def test_service_matrix_without_lint_skips_the_contract_gate(tmp_path):
+    # GIVEN a caller whose services all opt out of lint
+    import json
+    workflow = yaml.load((ROOT / ".github/workflows/build-and-deploy-service-parallel.yml").read_text(), Loader=yaml.BaseLoader)
+    step = workflow["jobs"]["prepare"]["steps"][0]
+    output = tmp_path / "output"
+    defaults = {"service": "backend", "run_tests": True, "run_lint": False,
+                "require_coverage": False, "coverage_measured_from": "",
+                "platforms": "linux/amd64", "additional_build_context": ""}
+    # WHEN the matrix resolution runs
+    result = subprocess.run(["bash", "-e", "-c", step["run"]],
+        env={**os.environ, "SERVICES": '[{"service":"backend"}]', "DEFAULTS": json.dumps(defaults), "GITHUB_OUTPUT": str(output)},
+        capture_output=True, text=True)
+    # THEN the lint contract gate is not requested
+    assert result.returncode == 0, result.stderr
+    assert "lint=false" in output.read_text().splitlines()
 
 
 @pytest.mark.parametrize("shards,success", [("1", True), ("2", True), ("8", True), ("0", False), ("9", False), ("1.5", False)])
