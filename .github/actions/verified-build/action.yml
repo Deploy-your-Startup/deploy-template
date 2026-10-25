@@ -49,5 +49,5 @@ runs:
         BUILD_PROOF_ID: ${{ inputs.proof_id }}
         BUILD_SERVICE: ${{ inputs.service }}
         BUILD_SHARED_REPOSITORY: ${{ inputs.shared_repository }}
-        BUILD_E2E_MODE: ${{ vars.STARTUP_E2E_MODE || 'ci' }}
+        BUILD_E2E_MODE: ${{ env.STARTUP_E2E_MODE || 'ci' }}
       run: python3 "${{ github.action_path }}/verified_build.py"
