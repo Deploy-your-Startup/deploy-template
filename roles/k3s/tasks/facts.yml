@@ -1,0 +1,149 @@
+---
+# Facts every install, join and upgrade task in main.yml relies on: this
+# node's network, its role in the cluster, its k3s exec args and what is
+# already installed. Gathering only; nothing here changes the node.
+# -----------------------------------------------------------------------------
+# STEP 1: Get network info directly from server
+# -----------------------------------------------------------------------------
+- name: "Get private IP"
+  ansible.builtin.shell: ip -o addr show | grep -v -E 'flannel|cni|veth|docker' | grep -E "inet 10\.[0-9]+\.[0-9]+\.[0-9]+" | awk '{print $4}' | cut -d'/' -f1 | head -1
+  register: private_ip_result
+  changed_when: false
+
+- name: "Set node IP (private if available, otherwise public)"
+  ansible.builtin.set_fact:
+    node_private_ip: "{{ private_ip_result.stdout | default('', true) }}"
+    has_private_network: "{{ private_ip_result.stdout | default('', true) | length > 0 }}"
+
+- name: "Get flannel interface"
+  ansible.builtin.shell: ip -o addr show | grep "{{ node_private_ip }}" | awk '{print $2}'
+  register: flannel_iface_result
+  changed_when: false
+  when: has_private_network
+
+- name: "Set flannel interface"
+  ansible.builtin.set_fact:
+    flannel_interface: "{{ flannel_iface_result.stdout | default('') }}"
+  when: has_private_network
+
+# -----------------------------------------------------------------------------
+# STEP 2: Determine role from hostname
+# -----------------------------------------------------------------------------
+- name: "Set node role"
+  ansible.builtin.set_fact:
+    is_first_master: "{{ inventory_hostname.endswith('master-0') }}"
+    is_master: "{{ 'master' in inventory_hostname }}"
+    is_worker: "{{ 'worker' in inventory_hostname }}"
+    first_master_host: "{{ inventory_hostname | regex_replace('(master|worker)-[0-9]+$', 'master-0') }}"
+
+- name: "Debug"
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }} | private_ip: {{ node_private_ip | default('none', true) }} | api_ip: {{ first_master_ip | default(ansible_host, true) }} | first_master: {{ is_first_master }} | master: {{ is_master }} | worker: {{ is_worker }}"
+
+# -----------------------------------------------------------------------------
+# STEP 2b: Refuse to join a private-network cluster over the public IP
+#
+# Falling back to the public address is correct for a cluster that has no
+# private network at all, but silently wrong when the rest of the cluster is on
+# 10.x — the node joins and reports Ready while its traffic takes a different
+# path. That failure is invisible until you compare INTERNAL-IPs, so catch it
+# here.
+# -----------------------------------------------------------------------------
+- name: "Check whether the first master uses a private network"
+  ansible.builtin.shell: ip -o addr show | grep -v -E 'flannel|cni|veth|docker' | grep -cE "inet 10\.[0-9]+\.[0-9]+\.[0-9]+"
+  register: first_master_private
+  delegate_to: "{{ first_master_host }}"
+  changed_when: false
+  failed_when: false
+
+- name: "Fail on inconsistent private networking"
+  ansible.builtin.fail:
+    msg: |
+      {{ inventory_hostname }} has no private network address, but
+      {{ first_master_host }} does. Joining now would place this node on its
+      public IP while the rest of the cluster talks over 10.x.
+
+      Usually the server was attached to the network after it had already
+      booted, so the interface was never configured. Reboot the node, or
+      recreate it so it is attached at creation time.
+  when:
+    - not has_private_network
+    - (first_master_private.stdout | default('0') | trim | int) > 0
+
+# -----------------------------------------------------------------------------
+# STEP 3: Get first master IP
+# -----------------------------------------------------------------------------
+- name: "Get first master private IP"
+  ansible.builtin.shell: ip -o addr show | grep -v -E 'flannel|cni|veth|docker' | grep -E "inet 10\.[0-9]+\.[0-9]+\.[0-9]+" | awk '{print $4}' | cut -d'/' -f1 | head -1
+  register: first_master_ip_result
+  delegate_to: "{{ first_master_host }}"
+  changed_when: false
+  when: has_private_network
+
+- name: "Set first master IP"
+  ansible.builtin.set_fact:
+    first_master_ip: "{{ first_master_ip_result.stdout if has_private_network else hostvars[first_master_host]['ansible_host'] }}"
+
+# -----------------------------------------------------------------------------
+# STEP 3b: Compose this node's k3s exec args, once.
+#
+# The install script rewrites the systemd unit from INSTALL_K3S_EXEC on every
+# run — it does not merge with what is already there. An upgrade that omits
+# these flags would silently drop --node-ip/--flannel-iface/--tls-san and
+# --node-label, so install and upgrade must pass byte-identical args. Hence one
+# definition, used by both.
+# -----------------------------------------------------------------------------
+- name: "Compose private network flags"
+  ansible.builtin.set_fact:
+    k3s_private_flags_server: "{{ ('--node-ip=' ~ node_private_ip ~ ' --flannel-iface=' ~ flannel_interface ~ ' --tls-san=' ~ node_private_ip) if has_private_network else '' }}"
+    k3s_private_flags_agent: "{{ ('--node-ip=' ~ node_private_ip ~ ' --flannel-iface=' ~ flannel_interface) if has_private_network else '' }}"
+
+- name: "Compose k3s exec args"
+  # --tls-san uses the public IP even when ansible_host is something else. In
+  # private network mode ansible_host becomes the node's MagicDNS name, and
+  # following it here would change the composed args of every existing node —
+  # which the upgrade preflight below rightly treats as drift. The API is
+  # reached over the tailnet with tls-server-name instead (see the CLI's
+  # kubeconfig command), so the certificate does not need the tailnet name.
+  vars:
+    k3s_api_san: "{{ hcloud_ipv4 | default(ansible_host, true) }}"
+  ansible.builtin.set_fact:
+    k3s_node_exec: >-
+      {%- if is_first_master -%}
+      server --cluster-init {{ k3s_private_flags_server }} --tls-san={{ k3s_api_san }} --node-label=type=master
+      {%- elif is_master -%}
+      server --server=https://{{ first_master_ip }}:6443 {{ k3s_private_flags_server }} --tls-san={{ k3s_api_san }} --node-label=type=master
+      {%- else -%}
+      agent {{ k3s_private_flags_agent }} --node-label=type=worker
+      {%- endif -%}
+    k3s_service_name: "{{ 'k3s' if is_master else 'k3s-agent' }}"
+
+# -----------------------------------------------------------------------------
+# STEP 3c: What is already installed here?
+#
+# Every install/join task below is gated on this. Without it the join tasks
+# re-run the installer on every play, silently upgrading a running node
+# whenever k3s_version changed — and taking it down mid-play to do so.
+# -----------------------------------------------------------------------------
+- name: "Read installed k3s version"
+  ansible.builtin.shell: k3s --version 2>/dev/null | awk '/^k3s version/ {print $3}'
+  register: installed_k3s_version
+  changed_when: false
+  failed_when: false
+
+- name: "Set version facts"
+  ansible.builtin.set_fact:
+    k3s_installed_version: "{{ installed_k3s_version.stdout | default('', true) | trim }}"
+    k3s_is_installed: "{{ (installed_k3s_version.stdout | default('', true) | trim) | length > 0 }}"
+
+- name: "Set upgrade fact"
+  ansible.builtin.set_fact:
+    k3s_needs_upgrade: "{{ k3s_is_installed and k3s_installed_version != k3s_version }}"
+
+- name: "Report pending upgrade"
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} runs {{ k3s_installed_version }}, target is
+      {{ k3s_version }}. Not touching it — run k3s-upgrade-playbook.yml
+      (or pass k3s_upgrade=true) to upgrade this node.
+  when: k3s_needs_upgrade and not (k3s_upgrade | bool)
