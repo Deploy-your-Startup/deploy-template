@@ -1,0 +1,14 @@
+name: Check deployment freshness
+description: Skip a push superseded by a newer push to the same workflow and branch
+outputs:
+  current:
+    description: Whether this run may start publication
+    value: ${{ steps.current.outputs.current }}
+runs:
+  using: composite
+  steps:
+    - id: current
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: python3 "${{ github.action_path }}/current.py"

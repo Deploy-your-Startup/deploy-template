@@ -23,12 +23,11 @@ poll that has not selected an application deployment.
 
 ## Enabling the deployment gate
 
-In the shared parallel build workflow, `run_e2e` enables the browser gate;
-`e2e_shards` chooses its shard count and `e2e_directory` locates the harness.
-`run_e2e` defaults to false for compatibility. Generated parallel-build callers
-explicitly enable it; inspect each project's caller rather than relying on the
-default. Every enabled shard must succeed before new production images publish.
-A failed, cancelled or unexpectedly skipped required E2E job blocks publication.
+Read `run_e2e` in the project workflow: `false` skips the additional CI browser
+run; `true` enables it. All tests must still run locally. Dependabot PRs always
+run E2E in CI. `e2e_shards` chooses the shard count and `e2e_directory` locates
+the harness. Failed, cancelled or unexpectedly skipped required checks block
+publication. See [the testing decision](adr/0005-local-or-ci-e2e.md).
 After a push, the parallel workflow may reuse the exact image and successful
 checks from an equivalent PR run. Its verified source/configuration/runtime
 record replaces a fresh E2E execution; a missing or invalid record runs the full

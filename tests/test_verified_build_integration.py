@@ -173,6 +173,18 @@ def test_matching_push_reuses_every_image_from_successful_pr(github, merge_style
     assert (github['runtime'] / 'production-image.tar').read_bytes() == github['image']
 
 
+def test_local_mode_evidence_cannot_replace_ci_e2e_after_policy_changes(github):
+    # GIVEN a successful PR whose browser checks were assigned to local execution.
+    github['configuration']['run_e2e'] = False
+    github['env']['BUILD_CONFIGURATION'] = json.dumps(github['configuration'])
+    github['record']()
+    # WHEN the same source is pushed after the operator requires CI verification.
+    result, values = github['invoke']('prepare', BUILD_CONFIGURATION=json.dumps({**github['configuration'], 'run_e2e': True}))
+    # THEN the changed execution policy invalidates reuse and full checks run.
+    assert result.returncode == 0, result.stderr
+    assert values['reuse'] == 'false'
+
+
 def test_direct_push_without_any_pr_runs_full_checks(github):
     # GIVEN a repository with no successful PR evidence (direct-to-main is allowed).
     # WHEN the actual prepare command runs on push.
@@ -303,7 +315,8 @@ def test_closed_pr_reuse_with_the_shipped_job_permissions(github, job, deny_pull
     # GIVEN merged PR evidence and an API boundary enforcing each shipped job's scopes.
     github['record']()
     github['run']['pull_requests'] = []
-    workflow = yaml.safe_load((ROOT / '.github/workflows/build-and-deploy-service-parallel.yml').read_text())
+    filename = 'verify-service-images.yml' if job == 'prepare' else 'publish-service-images.yml'
+    workflow = yaml.safe_load((ROOT / '.github/workflows' / filename).read_text())
     scopes = {name for name, access in workflow['jobs'][job]['permissions'].items()
               if access in ('read', 'write')}
     if deny_pull_requests:
@@ -422,7 +435,7 @@ def test_restore_fails_closed_if_evidence_changes_after_selection(github, failur
 ])
 def test_real_workflow_gate_preserves_full_fallback(reuse, prepare, proof, integration, image, e2e, expected):
     # GIVEN the shipped gate, including skipped jobs from the Actions scheduler.
-    workflow = yaml.load((ROOT / '.github/workflows/build-and-deploy-service-parallel.yml').read_text(), Loader=yaml.BaseLoader)
+    workflow = yaml.load((ROOT / '.github/workflows/verify-service-images.yml').read_text(), Loader=yaml.BaseLoader)
     gate = workflow['jobs']['checks']['steps'][0]['run']
     # WHEN its actual shell decides whether publication is allowed.
     result = subprocess.run(['bash', '-e', '-c', gate], env={**os.environ,

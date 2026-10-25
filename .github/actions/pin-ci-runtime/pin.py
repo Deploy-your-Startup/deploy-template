@@ -39,14 +39,18 @@ def main():
                             'measured_from': '', 'comment_key': '', 'github_token': ''},
         'container-e2e': {'directory': '', 'image': '', 'shard': '', 'total': ''},
         'lint-contract': {},
+        'current-deployment': {},
         'verified-build': {'mode': '', 'configuration': '{}', 'matrix': '{}',
                            'revision': revision, 'shared_repository': repository,
                            'proof_id': '', 'service': ''},
     }
     target = Path(os.environ['GITHUB_WORKSPACE']) / '.git/startup-actions'
     for name, inputs in definitions.items():
-        outputs = ['coverage_file'] if name == 'docker-test' else (
-            ['key', 'reuse', 'proof_id', 'record'] if name == 'verified-build' else [])
+        outputs = {
+            'current-deployment': ['current'],
+            'docker-test': ['coverage_file'],
+            'verified-build': ['key', 'reuse', 'proof_id', 'record'],
+        }.get(name, [])
         action = {
             'name': 'Pinned ' + name, 'description': 'Shared CI runtime at ' + reference,
             'inputs': {key: {'description': key, 'default': value} for key, value in inputs.items()},

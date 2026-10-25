@@ -10,6 +10,41 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / ".github/actions/container-e2e/run.sh"
 
 
+@pytest.mark.parametrize("mode,event,author,expected", [
+    ("true", "push", "owner", "true"),
+    ("true", "pull_request", "owner", "true"),
+    ("false", "push", "owner", "false"),
+    ("false", "pull_request", "owner", "false"),
+    ("false", "workflow_dispatch", "owner", "false"),
+    ("true", "workflow_dispatch", "owner", "true"),
+    ("typo", "push", "owner", None),
+    ("false", "pull_request", "dependabot[bot]", "true"),
+    ("true", "pull_request", "dependabot[bot]", "true"),
+])
+def test_shared_e2e_mode_executes_the_actual_selection_step(tmp_path, mode, event, author, expected):
+    # GIVEN the shipped workflow and the operator's repository execution policy.
+    workflow = yaml.load((ROOT / ".github/workflows/container-e2e.yml").read_text(), Loader=yaml.BaseLoader)
+    step = workflow["jobs"]["prepare"]["steps"][1]
+    output, summary = tmp_path / "output", tmp_path / "summary"
+    # WHEN the real selection command runs, before any browser image or test stack.
+    result = subprocess.run(["bash", "-e", "-c", step["run"]], env={
+        **os.environ, "RUN_E2E": mode, "GITHUB_EVENT_NAME": event,
+        "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary),
+        "PR_AUTHOR": author, "GITHUB_ACTOR": "owner-rerunning-a-bot-pr",
+    }, capture_output=True, text=True)
+    # THEN local mode is explicit, Dependabot runs execute CI E2E, and invalid values fail.
+    if expected is None:
+        assert result.returncode != 0
+        assert not output.exists()
+    else:
+        assert result.returncode == 0, result.stderr
+        assert output.read_text() == "run=" + expected + "\n"
+        assert workflow["jobs"]["test"]["if"] == "needs.prepare.outputs.run == 'true'"
+        if expected == "false":
+            assert "not executed in CI" in summary.read_text()
+            assert "does not verify that run" in summary.read_text()
+
+
 @pytest.mark.parametrize("integration,image,e2e,enabled,expected", [
     ("success", "success", "success", "true", 0),
     ("success", "success", "skipped", "false", 0),
@@ -21,12 +56,9 @@ SCRIPT = ROOT / ".github/actions/container-e2e/run.sh"
 ])
 def test_gate_blocks_publish_unless_every_required_job_passes(integration, image, e2e, enabled, expected):
     # GIVEN the real reusable workflow and results from the GitHub boundary
-    workflow = yaml.load((ROOT / ".github/workflows/build-and-deploy-service-parallel.yml").read_text(), Loader=yaml.BaseLoader)
+    workflow = yaml.load((ROOT / ".github/workflows/verify-service-images.yml").read_text(), Loader=yaml.BaseLoader)
     gate = workflow["jobs"]["checks"]
     assert set(gate["needs"]) == {"prepare", "build", "image", "e2e"}
-    assert workflow["jobs"]["publish"]["needs"] == ["checks", "prepare"]
-    assert "github.event_name != 'pull_request'" in workflow["jobs"]["publish"]["if"]
-    assert "needs.checks.result == 'success'" in workflow["jobs"]["publish"]["if"]
     # WHEN the exact gate shell executes
     result = subprocess.run(["bash", "-e", "-c", gate["steps"][0]["run"]], env={
         **os.environ, "PREPARE_RESULT": "success", "REUSE": "false", "PROOF_ID": "",
@@ -89,7 +121,7 @@ def test_invalid_shard_fails_before_starting_any_stack(tmp_path):
 def test_service_matrix_validates_real_caller_configuration(tmp_path, services, success):
     # GIVEN the real workflow and a caller's JSON service definitions
     import json
-    workflow = yaml.load((ROOT / ".github/workflows/build-and-deploy-service-parallel.yml").read_text(), Loader=yaml.BaseLoader)
+    workflow = yaml.load((ROOT / ".github/workflows/verify-service-images.yml").read_text(), Loader=yaml.BaseLoader)
     step = workflow["jobs"]["prepare"]["steps"][0]
     output = tmp_path / "output"
     defaults = {"service": "backend", "run_tests": True, "run_lint": True,
@@ -114,7 +146,7 @@ def test_service_matrix_validates_real_caller_configuration(tmp_path, services, 
 def test_service_matrix_without_lint_skips_the_contract_gate(tmp_path):
     # GIVEN a caller whose services all opt out of lint
     import json
-    workflow = yaml.load((ROOT / ".github/workflows/build-and-deploy-service-parallel.yml").read_text(), Loader=yaml.BaseLoader)
+    workflow = yaml.load((ROOT / ".github/workflows/verify-service-images.yml").read_text(), Loader=yaml.BaseLoader)
     step = workflow["jobs"]["prepare"]["steps"][0]
     output = tmp_path / "output"
     defaults = {"service": "backend", "run_tests": True, "run_lint": False,
@@ -136,7 +168,7 @@ def test_browser_matrix_runs_without_an_image_transfer_dependency(tmp_path, shar
     workflow = yaml.load((ROOT / ".github/workflows/container-e2e.yml").read_text(), Loader=yaml.BaseLoader)
     prepare = workflow["jobs"]["prepare"]
     output = tmp_path / "output"
-    assert len(prepare["steps"]) == 1
+    assert len(prepare["steps"]) == 2
     # WHEN its actual matrix preparation script executes
     result = subprocess.run(["bash", "-e", "-c", prepare["steps"][0]["run"]],
         env={**os.environ, "SHARDS": shards, "GITHUB_OUTPUT": str(output)}, capture_output=True, text=True)

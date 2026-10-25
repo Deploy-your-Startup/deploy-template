@@ -37,7 +37,8 @@ coverage of every feature. Report executed, failed and skipped checks separately
 a skipped provider scenario is unverified, not a pass. State remaining gaps when
 reporting completion. Local checks alone do not prove a production deployment.
 
-Preserve E2E as a deployment gate where the project deploys an application.
+Run lint and all tests locally before completing code changes. CI browser
+execution follows [the shared testing decision](adr/0005-local-or-ci-e2e.md).
 Every enabled shard must succeed before publishing or deployment. Use isolated
 data for each shard, retain reports and failure logs, and clean up disposable
 resources. Improve speed through caching and independent parallel checks rather

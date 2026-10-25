@@ -47,6 +47,23 @@ deployment. Pull requests never publish or deploy. The production image is
 exported as an OCI archive and published after the gate without rebuilding it.
 Build caches are scoped per service and target.
 
+Verification and publication use separate concurrency groups. A new automatic
+run cancels superseded verification for the same workflow, ref, environment and
+application, without interrupting publication already in progress. Only
+publication waits for the application/environment lock; it covers the entire
+service matrix, including image publication and deployment. Manual verification
+runs independently and publication shares the same application lock across refs.
+After acquiring that lock, a push skips publication if a newer push to the same
+workflow and branch exists. This also prevents an older rerun from rolling back
+a newer push. A failed newer push requires a fix or an explicit manual redeploy;
+an older automatic run does not take its place. Freshness API failures block
+publication. Already-started publication finishes even if another push arrives.
+
+The public workflow and inputs remain the same. Required checks now appear under
+`verify / Required checks`; update any branch rules that require the old job
+name when adopting this revision. See [deployment scheduling](docs/deployment-scheduling.md)
+for adoption and verification limits.
+
 For an application with several services, supply `service: app` (the workflow's
 concurrency/artifact prefix) and `services` as a JSON array, for example
 `[{"service":"backend"},{"service":"frontend","run_tests":false,"require_coverage":false}]`.
@@ -54,6 +71,9 @@ Each entry inherits the common inputs and may override its test, lint, coverage,
 platform and additional-context settings. All services build in parallel; one
 browser suite gates publication of all of them. This avoids rebuilding and
 rerunning the same browser suite separately for frontend and backend changes.
+
+Run all tests locally. `run_e2e: false` skips the additional CI browser
+run; `run_e2e: true` enables it. Dependabot PRs always run E2E in CI. See the [testing decision](docs/adr/0005-local-or-ci-e2e.md).
 
 The E2E directory supplies two small files:
 
@@ -73,6 +93,12 @@ and removes the disposable stack afterwards. Application test commands must
 return nonzero on failure. Use one worker per shard until tests support multiple
 isolated databases. E2E artifacts are separate from integration coverage; their
 percentages are not added or averaged.
+
+When the project command runs multiple test suites, distribute each suite
+explicitly: forward the shard selection to every shardable suite, or assign
+whole suites to specific shards. Running an unsharded secondary suite on every
+runner duplicates work. Keep the default single shard until measured elapsed
+time and total runner minutes justify additional isolated stacks.
 
 Include application, E2E, Docker context and workflow paths in the caller's
 triggers. For multi-service applications, every deployable service must wait
