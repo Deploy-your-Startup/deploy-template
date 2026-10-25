@@ -10,16 +10,18 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / ".github/actions/container-e2e/run.sh"
 
 
-@pytest.mark.parametrize("mode,event,expected", [
-    ("ci", "push", "true"),
-    ("ci", "pull_request", "true"),
-    ("local", "push", "false"),
-    ("local", "pull_request", "false"),
-    ("local", "workflow_dispatch", "true"),
-    ("ci", "workflow_dispatch", "true"),
-    ("typo", "push", None),
+@pytest.mark.parametrize("mode,event,author,expected", [
+    ("ci", "push", "owner", "true"),
+    ("ci", "pull_request", "owner", "true"),
+    ("local", "push", "owner", "false"),
+    ("local", "pull_request", "owner", "false"),
+    ("local", "workflow_dispatch", "owner", "true"),
+    ("ci", "workflow_dispatch", "owner", "true"),
+    ("typo", "push", "owner", None),
+    ("local", "pull_request", "dependabot[bot]", "true"),
+    ("ci", "pull_request", "dependabot[bot]", "true"),
 ])
-def test_shared_e2e_mode_executes_the_actual_selection_step(tmp_path, mode, event, expected):
+def test_shared_e2e_mode_executes_the_actual_selection_step(tmp_path, mode, event, author, expected):
     # GIVEN the shipped workflow and the operator's repository execution policy.
     workflow = yaml.load((ROOT / ".github/workflows/container-e2e.yml").read_text(), Loader=yaml.BaseLoader)
     step = workflow["jobs"]["prepare"]["steps"][1]
@@ -28,6 +30,7 @@ def test_shared_e2e_mode_executes_the_actual_selection_step(tmp_path, mode, even
     result = subprocess.run(["bash", "-e", "-c", step["run"]], env={
         **os.environ, "E2E_MODE": mode, "GITHUB_EVENT_NAME": event,
         "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary),
+        "PR_AUTHOR": author, "GITHUB_ACTOR": "owner-rerunning-a-bot-pr",
     }, capture_output=True, text=True)
     # THEN local mode is explicit, manual runs execute CI E2E, and invalid values fail.
     if expected is None:

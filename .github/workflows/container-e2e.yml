@@ -41,12 +41,13 @@ jobs:
         name: Select CI or local E2E
         env:
           E2E_MODE: ${{ vars.STARTUP_E2E_MODE || 'ci' }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           case "$E2E_MODE" in
             ci|local) ;;
             *) echo '::error::STARTUP_E2E_MODE must be ci or local'; exit 1 ;;
           esac
-          if [ "$E2E_MODE" = local ] && [ "$GITHUB_EVENT_NAME" != workflow_dispatch ]; then
+          if [ "$E2E_MODE" = local ] && [ "$GITHUB_EVENT_NAME" != workflow_dispatch ] && [ "$PR_AUTHOR" != 'dependabot[bot]' ]; then
             echo 'run=false' >> "$GITHUB_OUTPUT"
             echo '### E2E: local mode' >> "$GITHUB_STEP_SUMMARY"
             echo 'Browser E2E was not executed in CI. The operator must record a successful local run for this change; this job does not verify that run.' >> "$GITHUB_STEP_SUMMARY"
