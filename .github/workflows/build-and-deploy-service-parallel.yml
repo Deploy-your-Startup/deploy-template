@@ -1,4 +1,6 @@
-name: Parallel Build and Deploy Service
+# Deprecated: call build-and-deploy-service.yml instead. This alias keeps
+# existing callers working and will be removed in a later release.
+name: Parallel Build and Deploy Service (deprecated)
 
 on:
   workflow_call:
@@ -69,17 +71,16 @@ on:
       VAULT_PASSWORD:
         required: true
 
-# Cancellation belongs to verification only. Publication holds one application lock.
 jobs:
-  verify:
-    uses: ./.github/workflows/verify-service-images.yml
-    concurrency:
-      group: startup-verify-${{ github.workflow }}-${{ github.ref }}-${{ inputs.environment }}-${{ inputs.service }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'automatic' }}
-      cancel-in-progress: true
+  build-and-deploy:
+    uses: ./.github/workflows/build-and-deploy-service.yml
+    # A called workflow cannot exceed its caller's permissions.
     permissions:
       contents: read
       actions: read
       pull-requests: write
+      packages: write
+      id-token: write
     with:
       environment: ${{ inputs.environment }}
       service: ${{ inputs.service }}
@@ -94,26 +95,5 @@ jobs:
       e2e_directory: ${{ inputs.e2e_directory }}
       platforms: ${{ inputs.platforms }}
       additional_build_context: ${{ inputs.additional_build_context }}
-
-  publish:
-    if: github.event_name != 'pull_request' && needs.verify.result == 'success'
-    needs: verify
-    uses: ./.github/workflows/publish-service-images.yml
-    concurrency:
-      group: startup-publish-${{ inputs.environment }}-${{ inputs.service }}
-      cancel-in-progress: false
-    permissions:
-      contents: read
-      actions: read
-      pull-requests: read
-      packages: write
-      id-token: write
-    with:
-      configuration: ${{ toJSON(inputs) }}
-      matrix: ${{ needs.verify.outputs.matrix }}
-      revision: ${{ needs.verify.outputs.revision }}
-      reuse: ${{ needs.verify.outputs.reuse }}
-      proof_id: ${{ needs.verify.outputs.proof_id }}
-      environment: ${{ inputs.environment }}
     secrets:
       VAULT_PASSWORD: ${{ secrets.VAULT_PASSWORD }}

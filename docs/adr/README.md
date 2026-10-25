@@ -11,3 +11,4 @@ records from 0100. Supersede a record with a new one instead of rewriting it.
 | [0003](0003-ssh-tunnel-instead-of-public-api.md) | The Kubernetes API is closed; access goes through SSH |
 | [0004](0004-separate-verification-and-publication.md) | Cancel obsolete verification while protecting application publication |
 | [0005](0005-local-or-ci-e2e.md) | Select local or CI browser verification without changing the test suite |
+| [0006](0006-one-build-workflow.md) | One service build workflow; the parallel name is a deprecated alias |

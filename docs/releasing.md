@@ -57,13 +57,13 @@ Point application workflows at a reviewed commit of the owner repository, not
 `@main`:
 
 ```yaml
-uses: <github-owner>/deploy-your-startup/.github/workflows/build-and-deploy-service-parallel.yml@<commit-sha>
+uses: <github-owner>/deploy-your-startup/.github/workflows/build-and-deploy-service.yml@<commit-sha>
 ```
 
-In the parallel workflow, `pin-ci-runtime` loads the shared test, coverage,
+In the build workflow, `pin-ci-runtime` loads the shared test, coverage,
 build-evidence and browser actions from the same commit as the caller's
 reference. The `deploy` and `export-shared-roles` actions follow the project's
-`shared-roles.ref` when it exists. Other nested action references in the sequential
+`shared-roles.ref` when it exists. Other nested action references in the other shared
 workflows still use the owner repository's `main`.
 
 ## Credentials in CI

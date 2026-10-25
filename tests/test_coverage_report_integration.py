@@ -202,10 +202,13 @@ def test_workflow_passes_measurement_label_through_real_action(tmp_path, github,
     action = yaml.safe_load((ROOT / ".github/actions/coverage-report/action.yml").read_text())
     api = github()
     path = write_cobertura(tmp_path / "cobertura.xml")
+    verify = yaml.load((ROOT / ".github/workflows/verify-service-images.yml").read_text(),
+                       Loader=yaml.BaseLoader)
     workflow_inputs = workflow["on"]["workflow_call"]["inputs"]
     assert workflow_inputs["coverage_measured_from"]["default"] == ""
-    step = next(step for step in workflow["jobs"]["build"]["steps"] if step["name"] == "Report coverage")
-    resolved_label = step["with"]["measured_from"].replace("${{ inputs.coverage_measured_from }}", level)
+    assert workflow["jobs"]["verify"]["with"]["coverage_measured_from"] == "${{ inputs.coverage_measured_from }}"
+    step = next(step for step in verify["jobs"]["build"]["steps"] if step.get("name") == "Report coverage")
+    resolved_label = step["with"]["measured_from"].replace("${{ matrix.coverage_measured_from }}", level)
     action_step = action["runs"]["steps"][0]
     action_inputs = {"measured_from": resolved_label, "title": "Coverage: backend", "comment_key": "backend",
                      "required": "true", "files": f"backend={path}"}

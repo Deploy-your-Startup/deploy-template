@@ -66,7 +66,7 @@ def git(*arguments):
 
 
 def runtime_matches(run, revision):
-    expected = os.environ['BUILD_SHARED_REPOSITORY'] + '/.github/workflows/build-and-deploy-service-parallel.yml@'
+    expected = os.environ['BUILD_SHARED_REPOSITORY'] + '/.github/workflows/build-and-deploy-service.yml@'
     refs = [item for item in run.get('referenced_workflows', []) if item['path'].startswith(expected)]
     return len(refs) == 1 and refs[0]['sha'] == revision
 

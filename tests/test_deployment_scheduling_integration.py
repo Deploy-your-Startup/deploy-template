@@ -132,7 +132,7 @@ def test_shared_workflow_separates_cancellation_from_the_application_publication
     def workflow(name):
         return yaml.load((ROOT / '.github/workflows' / name).read_text(), Loader=yaml.BaseLoader)
 
-    entry = workflow('build-and-deploy-service-parallel.yml')
+    entry = workflow('build-and-deploy-service.yml')
     verify = workflow('verify-service-images.yml')
     publish = workflow('publish-service-images.yml')
     # WHEN following the reusable-job boundaries interpreted by GitHub Actions.
@@ -156,3 +156,27 @@ def test_shared_workflow_separates_cancellation_from_the_application_publication
     assert publish['jobs']['publish']['strategy']['matrix'] == '${{ fromJSON(inputs.matrix) }}'
     assert set(checks['with']) == set(verify['on']['workflow_call']['inputs'])
     assert entry['on']['workflow_call']['inputs'] == verify['on']['workflow_call']['inputs']
+
+
+def test_deprecated_parallel_alias_forwards_everything_to_the_entry_point():
+    # GIVEN the deprecated alias kept for callers pinned to its old name.
+    def workflow(name):
+        return yaml.load((ROOT / '.github/workflows' / name).read_text(), Loader=yaml.BaseLoader)
+
+    alias = workflow('build-and-deploy-service-parallel.yml')
+    entry = workflow('build-and-deploy-service.yml')
+    # WHEN following its only job into the reusable entry point.
+    job = alias['jobs']['build-and-deploy']
+    assert list(alias['jobs']) == ['build-and-deploy']
+    assert job['uses'] == './.github/workflows/build-and-deploy-service.yml'
+    # THEN it accepts and forwards the same inputs and secret unchanged, with
+    # every permission the entry point's jobs request.
+    inputs = entry['on']['workflow_call']['inputs']
+    assert alias['on']['workflow_call']['inputs'] == inputs
+    assert job['with'] == {name: '${{ inputs.%s }}' % name for name in inputs}
+    assert job['secrets'] == {'VAULT_PASSWORD': '${{ secrets.VAULT_PASSWORD }}'}
+    requested = {}
+    for child in entry['jobs'].values():
+        for scope, level in child['permissions'].items():
+            requested[scope] = 'write' if 'write' in (level, requested.get(scope)) else level
+    assert job['permissions'] == requested

@@ -28,7 +28,7 @@ run; `true` enables it. All tests must still run locally. Dependabot PRs always
 run E2E in CI. `e2e_shards` chooses the shard count and `e2e_directory` locates
 the harness. Failed, cancelled or unexpectedly skipped required checks block
 publication. See [the testing decision](adr/0005-local-or-ci-e2e.md).
-After a push, the parallel workflow may reuse the exact image and successful
+After a push, the build workflow may reuse the exact image and successful
 checks from an equivalent PR run. Its verified source/configuration/runtime
 record replaces a fresh E2E execution; a missing or invalid record runs the full
 pipeline. Direct-to-main remains supported. Manual runs always check afresh.
@@ -37,7 +37,7 @@ See [verified PR builds](verified-pr-builds.md) for eligibility, expiry and the
 Cloudflare callers use the shared container E2E workflow directly and make their
 deploy job depend on the browser job.
 
-See the actual [parallel build workflow](../.github/workflows/build-and-deploy-service-parallel.yml)
+See the actual [build workflow](../.github/workflows/build-and-deploy-service.yml)
 and [container E2E workflow](../.github/workflows/container-e2e.yml).
 
 ## Deployment paths without a fresh E2E run
@@ -46,7 +46,7 @@ The separate shared `deploy.yml` and `deploy-infrastructure.yml` workflows do
 not call E2E. Project callers may invoke them manually, and some invoke
 `deploy.yml` on changes under `deployment/**`. Direct deployment through the
 startup CLI is also a separate path. These operations do not establish a fresh
-E2E pass; the parallel build gate must not be described as protecting every
+E2E pass; the build gate must not be described as protecting every
 possible deployment path. Configuration or role changes can affect user flows
 and need appropriate checks and deployment verification.
 

@@ -100,7 +100,9 @@ def github(tmp_path):
         'repository': {'full_name': 'owner/app'}, 'head_repository': {'full_name': 'owner/app'},
         'created_at': datetime.now(timezone.utc).isoformat(), 'head_sha': head,
         'pull_requests': [{'base': {'sha': base}, 'head': {'sha': head}}],
-        'referenced_workflows': [{'path': 'owner/shared/.github/workflows/build-and-deploy-service-parallel.yml@main', 'sha': REVISION}],
+        # A caller of the deprecated alias also references the entry point.
+        'referenced_workflows': [{'path': 'owner/shared/.github/workflows/build-and-deploy-service-parallel.yml@main', 'sha': REVISION},
+                                 {'path': 'owner/shared/.github/workflows/build-and-deploy-service.yml@main', 'sha': REVISION}],
     }
     routes['actions/runs/100'] = run
     routes[f'commits/{head}/pulls?per_page=100'] = json.loads(json.dumps(run['pull_requests']))

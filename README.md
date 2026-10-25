@@ -28,17 +28,16 @@ decisions are recorded in [docs/adr](docs/adr/README.md).
   - Generic workflow for building and deploying any service
   - Configurable service name
   - Optional testing and linting through `./make.sh test` and `./make.sh lint`
+  - Optional container E2E gate: `run_e2e`, `e2e_shards` (1–8, default 1) and
+    `e2e_directory` (default `e2e_tests`)
   - Pull requests build and check without pushing images or deploying
   - Optional multi-platform support (amd64/arm64)
   - Standardized Docker image building and pushing
   - Deployment to configured environments
 
-### Parallel container checks
-
-`.github/workflows/build-and-deploy-service-parallel.yml` keeps the service
-inputs of the original workflow and adds `run_e2e`, `e2e_shards` (1–8, default
-1) and `e2e_directory` (default `e2e_tests`). Adopt it after syncing a release
-that contains this workflow. Existing callers can keep the original workflow.
+`.github/workflows/build-and-deploy-service-parallel.yml` is a deprecated alias
+that forwards to this workflow. It keeps callers pinned to its name working;
+point new and updated references at `build-and-deploy-service.yml`.
 
 Integration checks and the production image build run concurrently. With
 `run_e2e: true`, browser checks also run before the required-checks gate. A
@@ -211,9 +210,9 @@ there is no separate bundled Docker build/push action.
   - Repository checkout
   - Environment preparation
 
-### Internal actions of the parallel workflow
+### Internal actions of the build workflow
 
-These are called by `build-and-deploy-service-parallel.yml`; projects do not
+These are called by `build-and-deploy-service.yml`; projects do not
 call them directly.
 
 - `pin-ci-runtime`: resolves the immutable revision of the calling reusable
