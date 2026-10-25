@@ -12,10 +12,10 @@ def test_e2e_execution_documentation():
     assert len(links) == 4
     for link in links:
         assert (root / "docs" / link).is_file(), link
-    parallel = (root / ".github/workflows/build-and-deploy-service-parallel.yml").read_text()
+    entry = (root / ".github/workflows/build-and-deploy-service.yml").read_text()
     direct = (root / ".github/workflows/deploy.yml").read_text()
     # THEN documented gate controls exist and direct deploy has no E2E job.
-    assert "run_e2e:" in parallel
+    assert "run_e2e:" in entry
     assert "run_e2e: ${{ inputs.run_e2e }}" in (root / ".github/workflows/verify-service-images.yml").read_text()
     assert "run_e2e" not in direct
     assert "do\nnot call E2E" in guide

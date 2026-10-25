@@ -14,14 +14,14 @@ all run before publication. Required checks remains the deployment gate.
 ## Controls and compatibility
 
 `reuse_pr_build` defaults to `true` in
-`build-and-deploy-service-parallel.yml`. Set it to `false` to force fresh builds
+`build-and-deploy-service.yml`. Set it to `false` to force fresh builds
 and checks, including after a dependency or base-image security update. Manual
 `workflow_dispatch` runs always execute fresh checks, regardless of this input.
 
-Both Django and Vue application templates already call this parallel workflow;
+Both Django and Vue application templates already call this build workflow;
 there are no portfolio names, account-specific settings or per-project patches
-in this mechanism. The older sequential workflow and Cloudflare Pages workflow
-do not reuse PR evidence. Their existing checks remain unchanged.
+in this mechanism. Cloudflare Pages workflows do not reuse PR evidence; their
+existing checks remain unchanged.
 
 The first PR after adoption runs in full and creates the evidence for its push.
 An existing project must reference a shared revision containing this feature.

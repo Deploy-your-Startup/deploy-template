@@ -8,7 +8,7 @@ deployment. Different services must not interleave publication across runs.
 
 ## Decision
 
-Keep the public parallel workflow as an entry point. Call verification and
+Keep the public build workflow as an entry point. Call verification and
 publication as separate reusable jobs. Only verification cancels an older run's
 verification; publication holds a non-cancelling application/environment lock
 around the entire service matrix. Check push freshness once inside that lock,

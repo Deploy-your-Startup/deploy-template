@@ -19,7 +19,7 @@ def main():
             )
             refs = json.loads(result.stdout)['referenced_workflows']
             matches = {item['sha'] for item in refs if item['path'].startswith(
-                repository + '/.github/workflows/build-and-deploy-service-parallel.yml@')}
+                repository + '/.github/workflows/build-and-deploy-service.yml@')}
             if len(matches) != 1:
                 raise ValueError('Ambiguous reusable workflow revision')
             revision = matches.pop()
