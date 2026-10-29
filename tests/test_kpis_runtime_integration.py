@@ -201,14 +201,27 @@ def browse(page, step, attempts=5):
             if (request.failure or '').startswith('net::ERR_NETWORK_CHANGED'):
                 aborted.append(request.url)
         page.on('requestfailed', record)
+        events = []  # DIAGNOSTIC (temporary)
+        def log_failed(request): events.append(('failed', request.url, request.failure, request.is_navigation_request()))
+        def log_nav(frame): events.append(('navigated', frame.url, frame == page.main_frame))
+        page.on('requestfailed', log_failed); page.on('framenavigated', log_nav)
         try:
             return step()
         except (Error, AssertionError) as error:
+            at_raise = list(events); aborted_at_raise = list(aborted)
+            try:
+                page.wait_for_timeout(500)
+            except Error:
+                pass
+            with open('/tmp/kpidiag.log', 'a') as log:
+                print('KPIDIAG', repr(str(error).splitlines()[0]), 'aborted_at_raise=', aborted_at_raise,
+                      'aborted_after=', aborted, 'events_at_raise=', at_raise, 'events_after=', events, file=log)
             if attempt == attempts or not (aborted or 'ERR_NETWORK_CHANGED' in str(error)):
                 raise
             wait_for_settled_host_links()
         finally:
             page.remove_listener('requestfailed', record)
+            page.remove_listener('requestfailed', log_failed); page.remove_listener('framenavigated', log_nav)
 
 
 @pytest.fixture
