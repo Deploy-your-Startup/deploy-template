@@ -70,20 +70,19 @@ jobs:
         shard: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
       - uses: §§deploy_your_startup.github_username§§/§§deploy_your_startup.deploy_repo_name§§/.github/actions/pin-ci-runtime@main
         if: inputs.runtime_revision != ''
         with:
           revision: ${{ inputs.runtime_revision }}
-      - name: Build cached browser image on this runner
+      # The runner's own Docker builder writes straight into the daemon. A
+      # buildx container builder would export a tarball and the GHA cache,
+      # which cost more than the uncached layers they save.
+      - name: Build browser image on this runner
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           file: ${{ inputs.directory }}/Dockerfile
           tags: startup-e2e:${{ github.run_id }}
-          load: true
-          cache-from: type=gha,scope=${{ inputs.artifact_prefix }}-e2e
-          cache-to: type=gha,mode=max,scope=${{ inputs.artifact_prefix }}-e2e
       - name: Run pinned isolated browser shard
         if: inputs.runtime_revision != ''
         uses: ./.git/startup-actions/container-e2e
