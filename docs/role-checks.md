@@ -28,15 +28,19 @@ uv sync --locked
 uv run --locked playwright install --only-shell chromium
 ```
 
-`./make.sh test` runs scenarios in parallel pytest-xdist workers against one
-Docker daemon. Give every container, image tag and Compose project a unique
+`./make.sh test` runs independent scenarios in parallel pytest-xdist workers
+against one Docker daemon, then runs `test_kpis_runtime_integration.py` serially
+after the parallel phase and all its container teardown have finished. Either
+phase failing makes the command fail. Grouping only the KPI scenarios on one
+worker is insufficient: other workers can still change the host network while
+Chromium is navigating. Give every container, image tag and Compose project a unique
 name, publish only on loopback ports Docker or the kernel just chose, and filter
 Docker queries by your own names or labels, never by shared image IDs. Docker
 adds an IPv6 address to the host side of each new container interface about two
 seconds after start, and Chromium aborts in-flight requests on that change with
 `ERR_NETWORK_CHANGED`. Browser checks therefore wait for those addresses before
-starting and before repeating a step that Chromium aborted with that error, and
-share one `xdist_group` so they do not start containers under each other. Run
+starting and before repeating a step that Chromium aborted with that error. The
+separate browser phase prevents network changes from the other tests. Run
 one scenario serially with `uv run --locked pytest -n0 tests/<file>.py`.
 
 The CLI also provides a syntax-only command:

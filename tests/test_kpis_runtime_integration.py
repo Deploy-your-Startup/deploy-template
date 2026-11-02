@@ -17,9 +17,8 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-# Each scenario starts six containers whose host addresses would interrupt the
-# browser of a neighbouring KPI scenario; run them on one worker, one by one.
-pytestmark = pytest.mark.xdist_group('kpis-browser')
+# make.sh runs these scenarios serially after all other tests have torn down
+# their containers; Docker host-network changes can interrupt Chromium.
 
 
 def trusted(value):
