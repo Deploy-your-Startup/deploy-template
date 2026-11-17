@@ -1,5 +1,12 @@
 # Deploy Your Startup — shared deployment foundation
 
+> **Moved.** This repository is archived. Its successor is the public
+> [`Deploy-your-Startup/deploy`](https://github.com/Deploy-your-Startup/deploy):
+> projects pin its releases directly instead of a per-owner `deploy-your-startup`
+> copy that `startup sync` maintained. Move a project once with
+> `startup migrate deploy` (Startup CLI v0.1.45 or later). This repository stays
+> readable, so older CLIs and existing owner copies keep working.
+
 This repository contains the shared deploy workflows, composite actions, and
 Ansible roles that Deploy Your Startup users sync into their own private
 `deploy-your-startup` repository.
